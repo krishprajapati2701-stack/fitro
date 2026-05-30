@@ -398,7 +398,7 @@ function AdminProducts() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [step, setStep] = useState(1);
-  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "",
+ const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
   const [form, setForm] = useState(EMPTY_FORM);
   const [allCatsData, setAllCatsData] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -453,7 +453,7 @@ function AdminProducts() {
       const flatStock = Number(p.stock) || 10;
       sizes.forEach(s => { stockPerSize[s] = flatStock; });
     }
-    setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], description: p.description || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
+   setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
     setStep(1);
     setModal(true);
   }
@@ -470,6 +470,7 @@ function AdminProducts() {
       name: form.name, price: Number(form.price),
       mrp: form.mrp ? Number(form.mrp) : null,
       category: form.category,
+      subcategory: form.subcategory || null,
       description: form.description,
       images: form.imageList.filter(u => u.trim()),
       sizes: parsedSizes,
