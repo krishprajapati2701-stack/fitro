@@ -398,7 +398,7 @@ function AdminProducts() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [step, setStep] = useState(1);
-  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", description: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
+  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "",
   const [form, setForm] = useState(EMPTY_FORM);
   const [allCatsData, setAllCatsData] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -417,7 +417,7 @@ function AdminProducts() {
     try {
       const snap = await getDocs(collection(db, "categories"));
       if (!snap.empty) {
-        const catData = snap.docs.map(d => ({ name: d.data().name }));
+        const catData = snap.docs.map(d => ({ id: d.id, name: d.data().name, subcategories: d.data().subcategories || [] }));
         setAllCatsData(catData);
         // Set default category to first one
         setForm(prev => prev.category === "" ? { ...prev, category: catData[0]?.name || "Mens" } : prev);
@@ -716,10 +716,12 @@ function AdminProducts() {
                     ))}
                   </div>
                 </div>
-                <div style={{ background: "rgba(232,197,71,0.06)", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 20 }}>
-                  📁 <strong style={{ color: "var(--accent)" }}>{form.category}</strong>
-                </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+            <div style={{ background: "rgba(232,197,71,0.06)", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 16 }}>
+  📁 <strong style={{ color: "var(--accent)" }}>{form.category}</strong>
+  {form.subcategory && <span style={{ color: "var(--muted)" }}> → <strong style={{ color: "var(--light)" }}>{form.subcategory}</strong></span>}
+</div>
+{(() => { const sc = allCatsData.find(c => c.name === form.category)?.subcategories || []; return sc.length > 0 ? (<div style={{ marginBottom: 16 }}><label className="label" style={{ fontSize: 13, marginBottom: 8, display: "block" }}>Subcategory (optional)</label><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" onClick={() => setForm(f => ({ ...f, subcategory: "" }))} style={{ padding: "8px 16px", borderRadius: 8, border: `1.5px solid ${!form.subcategory ? "var(--accent)" : "var(--border)"}`, background: !form.subcategory ? "rgba(232,197,71,0.1)" : "transparent", color: !form.subcategory ? "var(--accent)" : "var(--muted)", fontSize: 13, cursor: "pointer" }}>None</button>{sc.map(sub => (<button key={sub} type="button" onClick={() => setForm(f => ({ ...f, subcategory: sub }))} style={{ padding: "8px 16px", borderRadius: 8, border: `1.5px solid ${form.subcategory === sub ? "var(--accent)" : "var(--border)"}`, background: form.subcategory === sub ? "rgba(232,197,71,0.1)" : "transparent", color: form.subcategory === sub ? "var(--accent)" : "var(--muted)", fontSize: 13, cursor: "pointer" }}>{sub}</button>))}</div></div>) : null; })()}
+<div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
                   <button onClick={() => setStep(1)} className="btn btn-secondary">← Back</button>
                   <button onClick={() => setStep(3)} className="btn btn-primary">Next: Images →</button>
                 </div>
