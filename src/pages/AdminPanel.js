@@ -789,12 +789,13 @@ function AdminProducts() {
   );
 }
 
-// ---- CATEGORIES ----
+// ---- CATEGORIES (UPDATED with Subcategories) ----
 function AdminCategories() {
   const [cats, setCats] = useState([]);
   const [name, setName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", image: "" });
+  const [editForm, setEditForm] = useState({ name: "", image: "", subcategories: [] });
+  const [newSubcat, setNewSubcat] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { fetchCats(); }, []);
@@ -802,7 +803,7 @@ function AdminCategories() {
   async function fetchCats() {
     const snap = await getDocs(collection(db, "categories"));
     if (snap.empty) {
-      for (const n of ["Mens", "Womens", "Unisex"]) await addDoc(collection(db, "categories"), { name: n, image: "", createdAt: serverTimestamp() });
+      for (const n of ["Mens", "Womens", "Unisex"]) await addDoc(collection(db, "categories"), { name: n, image: "", subcategories: [], createdAt: serverTimestamp() });
       fetchCats(); return;
     }
     setCats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -811,7 +812,7 @@ function AdminCategories() {
   async function addCat(e) {
     e.preventDefault();
     if (!name.trim()) return;
-    await addDoc(collection(db, "categories"), { name: name.trim(), image: "", createdAt: serverTimestamp() });
+    await addDoc(collection(db, "categories"), { name: name.trim(), image: "", subcategories: [], createdAt: serverTimestamp() });
     setName(""); fetchCats(); toast.success("Category added!");
   }
 
@@ -822,49 +823,138 @@ function AdminCategories() {
 
   function openEdit(cat) {
     setEditingCat(cat.id);
-    setEditForm({ name: cat.name, image: cat.image || "" });
+    setEditForm({ name: cat.name, image: cat.image || "", subcategories: cat.subcategories || [] });
+    setNewSubcat("");
+  }
+
+  function addSubcat() {
+    const val = newSubcat.trim();
+    if (!val) return;
+    if (editForm.subcategories.includes(val)) { toast.error("Already exists!"); return; }
+    setEditForm(f => ({ ...f, subcategories: [...f.subcategories, val] }));
+    setNewSubcat("");
+  }
+
+  function removeSubcat(sub) {
+    setEditForm(f => ({ ...f, subcategories: f.subcategories.filter(s => s !== sub) }));
   }
 
   async function saveCat() {
     setSaving(true);
     try {
-      await updateDoc(doc(db, "categories", editingCat), { name: editForm.name, image: editForm.image, updatedAt: serverTimestamp() });
-      toast.success("Category updated!");
+      await updateDoc(doc(db, "categories", editingCat), {
+        name: editForm.name,
+        image: editForm.image,
+        subcategories: editForm.subcategories,
+        updatedAt: serverTimestamp()
+      });
+      toast.success("Category updated! ✅");
       setEditingCat(null);
       fetchCats();
     } catch (e) { toast.error("Failed to save"); }
     setSaving(false);
   }
 
+  const SUGGESTIONS = ["T-Shirts", "Hoodies", "Oversized", "Joggers", "Shorts", "Co-ords", "Crop Tops", "Tops", "Jackets", "Sweatshirts"];
+
   return (
     <div>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: 32, letterSpacing: 1, marginBottom: 8 }}>CATEGORIES</h1>
-      <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>Manage your product categories. Assign products to categories in the Products section.</p>
+      <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+        Manage categories and subcategories. Click <strong style={{ color: "var(--accent)" }}>Edit</strong> on any category to add subcategories like T-Shirts, Hoodies etc.
+      </p>
+
       <form onSubmit={addCat} style={{ display: "flex", gap: 10, marginBottom: 24 }}>
         <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="New category name (e.g. Mens)..." className="input" style={{ maxWidth: 300 }} />
         <button type="submit" className="btn btn-primary"><Plus size={14} /> Add Category</button>
       </form>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {cats.map(c => (
           <div key={c.id} className="card" style={{ padding: "16px 18px" }}>
             {editingCat === c.id ? (
               <div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--accent)", letterSpacing: 2, marginBottom: 16 }}>EDIT: {c.name}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--accent)", letterSpacing: 2, marginBottom: 16 }}>
+                  EDIT: {c.name}
+                </div>
+
+                {/* Name */}
                 <div className="form-group">
                   <label className="label">Category Name</label>
                   <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({...f, name: e.target.value}))} className="input" />
                 </div>
+
+                {/* Image */}
                 <div className="form-group">
                   <label className="label">Thumbnail Image URL</label>
-                  <input type="text" value={editForm.image} onChange={e => setEditForm(f => ({...f, image: e.target.value}))} className="input" placeholder="https://i.ibb.co/... or any image URL" />
-                  {editForm.image && (
-                    <img src={editForm.image} alt="" style={{ width: 80, height: 100, borderRadius: 8, objectFit: "cover", marginTop: 8, background: "var(--ink3)" }} onError={e => e.target.style.display="none"} />
-                  )}
+                  <input type="text" value={editForm.image} onChange={e => setEditForm(f => ({...f, image: e.target.value}))} className="input" placeholder="https://i.ibb.co/..." />
+                  {editForm.image && <img src={editForm.image} alt="" style={{ width: 80, height: 100, borderRadius: 8, objectFit: "cover", marginTop: 8, background: "var(--ink3)" }} onError={e => e.target.style.display="none"} />}
                   <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>💡 Upload to imgbb.com → Copy Direct Link → Paste here</div>
                 </div>
 
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <button onClick={saveCat} className="btn btn-primary" disabled={saving}><Save size={13} /> {saving ? "Saving..." : "Save Changes"}</button>
+                {/* SUBCATEGORIES */}
+                <div className="form-group">
+                  <label className="label" style={{ fontSize: 14, marginBottom: 10, display: "block" }}>
+                    📂 Subcategories
+                    <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11, marginLeft: 8 }}>
+                      shown as filter tabs in Shop page
+                    </span>
+                  </label>
+
+                  {/* Current subcats */}
+                  {editForm.subcategories.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14, padding: "12px", background: "var(--ink3)", borderRadius: 10 }}>
+                      {editForm.subcategories.map(sub => (
+                        <div key={sub} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 20, padding: "6px 14px" }}>
+                          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>{sub}</span>
+                          <button onClick={() => removeSubcat(sub)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", lineHeight: 1 }}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 12, padding: "12px", background: "var(--ink3)", borderRadius: 8, textAlign: "center" }}>
+                      No subcategories yet — add some below!
+                    </div>
+                  )}
+
+                  {/* Add input */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <input
+                      type="text"
+                      value={newSubcat}
+                      onChange={e => setNewSubcat(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSubcat(); } }}
+                      placeholder="Type subcategory (e.g. T-Shirts) then press Enter"
+                      className="input"
+                    />
+                    <button type="button" onClick={addSubcat} className="btn btn-primary" style={{ flexShrink: 0 }}>
+                      <Plus size={14} /> Add
+                    </button>
+                  </div>
+
+                  {/* Quick suggestions */}
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>💡 Quick add:</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {SUGGESTIONS.filter(s => !editForm.subcategories.includes(s)).map(s => (
+                        <button key={s} type="button"
+                          onClick={() => setEditForm(f => ({ ...f, subcategories: [...f.subcategories, s] }))}
+                          style={{ padding: "4px 12px", borderRadius: 16, border: "1px dashed var(--border2)", background: "transparent", color: "var(--muted)", fontSize: 12, cursor: "pointer", transition: "all 0.15s" }}
+                          onMouseEnter={e => { e.target.style.borderColor = "var(--accent)"; e.target.style.color = "var(--accent)"; }}
+                          onMouseLeave={e => { e.target.style.borderColor = "var(--border2)"; e.target.style.color = "var(--muted)"; }}>
+                          + {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button onClick={saveCat} className="btn btn-primary" disabled={saving}>
+                    <Save size={13} /> {saving ? "Saving..." : "Save Changes"}
+                  </button>
                   <button onClick={() => setEditingCat(null)} className="btn btn-secondary">Cancel</button>
                 </div>
               </div>
@@ -878,8 +968,18 @@ function AdminCategories() {
                   </div>
                 )}
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{c.name}</div>
-
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{c.name}</div>
+                  {c.subcategories?.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {c.subcategories.map(sub => (
+                        <span key={sub} style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: "rgba(232,197,71,0.08)", border: "1px solid rgba(232,197,71,0.2)", color: "var(--accent)" }}>
+                          {sub}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>No subcategories — click Edit to add</span>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   <button onClick={() => openEdit(c)} className="btn btn-ghost" style={{ padding: "6px 10px" }}><Edit size={13} /></button>
@@ -890,15 +990,10 @@ function AdminCategories() {
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 16, background: "rgba(212,255,0,0.05)", border: "1px solid rgba(212,255,0,0.15)", borderRadius: 10, padding: "12px 16px", fontSize: 13 }}>
-        <strong style={{ color: "var(--accent)" }}>💡 How sub-categories work:</strong>
-        <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
-          Sub-categories (e.g. "Summer Collection", "Oversized Fit") appear as filter chips in the Shop page under each main category. Products with a matching badge or category name will be filtered accordingly.
-        </div>
-      </div>
     </div>
   );
 }
+
 
 // ---- ORDERS ----
 function AdminOrders() {
