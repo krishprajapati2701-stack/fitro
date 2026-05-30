@@ -10,7 +10,6 @@ export function useWishlist() {
   const { currentUser } = useAuth();
   const [wishlist, setWishlist] = useState([]);
 
-  // Load wishlist from Firestore when user logs in (cross-device sync)
   useEffect(() => {
     if (!currentUser) { setWishlist([]); return; }
     (async () => {
@@ -19,7 +18,6 @@ export function useWishlist() {
         if (snap.exists()) {
           setWishlist(snap.data().items || []);
         } else {
-          // Migrate from localStorage if exists
           const local = localStorage.getItem(`fitro_wishlist_${currentUser.uid}`);
           const items = local ? JSON.parse(local) : [];
           await setDoc(doc(db, "wishlists", currentUser.uid), { items, updatedAt: new Date() });
@@ -27,7 +25,6 @@ export function useWishlist() {
           if (items.length) localStorage.removeItem(`fitro_wishlist_${currentUser.uid}`);
         }
       } catch (e) {
-        // Fallback to localStorage if Firestore fails
         const saved = localStorage.getItem(`fitro_wishlist_${currentUser.uid}`);
         if (saved) setWishlist(JSON.parse(saved));
       }
@@ -38,7 +35,7 @@ export function useWishlist() {
     if (!currentUser) { toast.error("Login to save wishlist!"); return; }
     const isIn = wishlist.includes(productId);
     const next = isIn ? wishlist.filter(id => id !== productId) : [...wishlist, productId];
-    setWishlist(next); // optimistic update
+    setWishlist(next);
     toast(isIn ? "Removed from wishlist" : "Saved to wishlist ♥");
     try {
       await updateDoc(doc(db, "wishlists", currentUser.uid), {
@@ -46,7 +43,6 @@ export function useWishlist() {
         updatedAt: new Date(),
       });
     } catch (e) {
-      // Doc may not exist yet
       await setDoc(doc(db, "wishlists", currentUser.uid), { items: next, updatedAt: new Date() });
     }
   }
@@ -75,34 +71,105 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
   const wl = wishlisted !== undefined ? wishlisted : isWishlisted(product.id);
   const handleWishlist = onWishlist || ((e) => { e.stopPropagation(); toggle(product.id); });
   const discount = product.mrp && product.mrp > product.price ? Math.round((1 - product.price / product.mrp) * 100) : null;
-  // Stock check
   const stockMap = (product.stock && typeof product.stock === "object") ? product.stock : null;
   const totalStock = stockMap ? Object.values(stockMap).reduce((s, v) => s + v, 0) : (typeof product.stock === "number" ? product.stock : 999);
   const isOOS = totalStock === 0;
 
+  // Multi-image scroll logic
+  const images = (product.images?.filter(Boolean).length > 0) ? product.images.filter(Boolean) : ["/tshirt1.jpg"];
+  const [imgIndex, setImgIndex] = useState(0);
+  const intervalRef = useRef(null);
+  const isMobile = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+  // Preload images
+  useEffect(() => {
+    images.forEach((src, i) => {
+      if (i === 0) return;
+      const img = new window.Image();
+      img.src = src;
+    });
+  }, [product.id]);
+
+  // Desktop: hover to scroll
+  function handleMouseEnter() {
+    if (isMobile || images.length <= 1) return;
+    setImgIndex(1);
+    intervalRef.current = setInterval(() => setImgIndex(i => (i + 1) % images.length), 900);
+  }
+  function handleMouseLeave() {
+    if (isMobile) return;
+    clearInterval(intervalRef.current);
+    setImgIndex(0);
+  }
+
+  // Mobile: touch the image box → instant scroll
+  function handleTouchStart(e) {
+    if (!isMobile || images.length <= 1) return;
+    e.stopPropagation();
+    clearInterval(intervalRef.current);
+    setImgIndex(i => (i + 1) % images.length); // instant first jump
+    intervalRef.current = setInterval(() => setImgIndex(i => (i + 1) % images.length), 700);
+  }
+  function handleTouchEnd(e) {
+    if (!isMobile) return;
+    e.stopPropagation();
+    clearInterval(intervalRef.current);
+  }
+
+  useEffect(() => () => clearInterval(intervalRef.current), []);
+
   return (
-    <div className="product-card" onClick={onClick}>
-      <div style={{ position: "relative", overflow: "hidden" }}>
-        <img className="pcard-img" src={product.images?.[0] || "/tshirt1.jpg"} alt={product.name} onError={e => e.target.src = "/tshirt1.jpg"} />
+    <div className="product-card" onClick={onClick} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <div
+        style={{ position: "relative", overflow: "hidden", background: "var(--ink3)" }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div style={{ position: "relative", width: "100%", paddingBottom: "133.33%" }}>
+          {images.map((src, i) => (
+            <img
+              key={src + i}
+              src={src}
+              alt={i === 0 ? product.name : ""}
+              loading={i === 0 ? "eager" : "lazy"}
+              style={{
+                position: "absolute", top: 0, left: 0,
+                width: "100%", height: "100%", objectFit: "cover",
+                opacity: i === imgIndex ? 1 : 0,
+                transition: "opacity 0.3s ease",
+              }}
+              onError={e => { e.target.style.opacity = "0"; }}
+            />
+          ))}
+        </div>
+
+        {/* Dot indicators */}
+        {images.length > 1 && (
+          <div style={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, zIndex: 5, pointerEvents: "none" }}>
+            {images.map((_, i) => (
+              <div key={i} style={{ width: i === imgIndex ? 14 : 5, height: 5, borderRadius: 3, background: i === imgIndex ? "var(--accent)" : "rgba(255,255,255,0.45)", transition: "all 0.3s ease" }} />
+            ))}
+          </div>
+        )}
+
         {discount && (
-          <div style={{ position: "absolute", top: 10, left: 10, background: "var(--accent)", color: "var(--ink)", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 5 }}>
+          <div style={{ position: "absolute", top: 10, left: 10, background: "var(--accent)", color: "var(--ink)", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 5, zIndex: 3 }}>
             -{discount}%
           </div>
         )}
         {product.badge && !isOOS && (
-          <div style={{ position: "absolute", top: 10, left: discount ? 56 : 10, background: "rgba(13,13,13,0.75)", border: "1px solid var(--border2)", color: "var(--light2)", fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 5, backdropFilter: "blur(4px)" }}>
+          <div style={{ position: "absolute", top: 10, left: discount ? 56 : 10, background: "rgba(13,13,13,0.75)", border: "1px solid var(--border2)", color: "var(--light2)", fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 5, backdropFilter: "blur(4px)", zIndex: 3 }}>
             {product.badge}
           </div>
         )}
         {isOOS && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(13,13,13,0.65)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(2px)" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(13,13,13,0.65)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(2px)", zIndex: 4 }}>
             <div style={{ background: "#f87171", color: "#fff", fontSize: 11, fontWeight: 800, padding: "5px 12px", borderRadius: 6, letterSpacing: 1, textTransform: "uppercase" }}>Out of Stock</div>
           </div>
         )}
-
         {currentUser && (
           <button onClick={handleWishlist} style={{
-            position: "absolute", top: 10, right: 10,
+            position: "absolute", top: 10, right: 10, zIndex: 5,
             background: wl ? "var(--rose)" : "rgba(13,13,13,0.7)", border: "none",
             borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center",
             justifyContent: "center", cursor: "pointer", transition: "all 0.2s", backdropFilter: "blur(4px)"
@@ -195,61 +262,17 @@ export default function Home() {
         .hero-counter { position: absolute; bottom: 26px; right: 24px; font-family: var(--font-mono); font-size: 11px; color: rgba(255,255,255,0.3); z-index: 10; letter-spacing: 2px; }
 
         @media (max-width: 768px) {
-          .hero-section {
-            height: 100svh;
-            min-height: 600px;
-            max-height: 900px;
-          }
-          .hero-bg-img {
-            opacity: 1 !important;
-            object-fit: contain !important;
-            object-position: center 30% !important;
-            width: 100% !important;
-            height: 100% !important;
-            background: #0a0a0a !important;
-          }
-          .hero-overlay {
-            background: linear-gradient(
-              to top,
-              rgba(5,5,5,0.98) 0%,
-              rgba(5,5,5,0.85) 28%,
-              rgba(5,5,5,0.45) 55%,
-              rgba(5,5,5,0.08) 80%,
-              rgba(5,5,5,0.0) 100%
-            ) !important;
-          }
-          .hero-content-wrap {
-            align-items: flex-end !important;
-            padding-bottom: 80px !important;
-          }
-          .hero-text-block {
-            padding: 0 !important;
-            max-width: 100% !important;
-            width: 100% !important;
-          }
-          .hero-title {
-            font-size: clamp(30px, 8.5vw, 50px) !important;
-            margin-bottom: 10px !important;
-            text-shadow: 0 2px 24px rgba(0,0,0,0.9) !important;
-            line-height: 1.05 !important;
-          }
-          .hero-sub {
-            font-size: 13px !important;
-            color: rgba(247,246,242,0.82) !important;
-            margin-bottom: 18px !important;
-            max-width: 100% !important;
-            text-shadow: 0 1px 8px rgba(0,0,0,0.8) !important;
-          }
+          .hero-section { height: 100svh; min-height: 600px; max-height: 900px; }
+          .hero-bg-img { opacity: 1 !important; object-fit: contain !important; object-position: center 30% !important; width: 100% !important; height: 100% !important; background: #0a0a0a !important; }
+          .hero-overlay { background: linear-gradient(to top, rgba(5,5,5,0.98) 0%, rgba(5,5,5,0.85) 28%, rgba(5,5,5,0.45) 55%, rgba(5,5,5,0.08) 80%, rgba(5,5,5,0.0) 100%) !important; }
+          .hero-content-wrap { align-items: flex-end !important; padding-bottom: 80px !important; }
+          .hero-text-block { padding: 0 !important; max-width: 100% !important; width: 100% !important; }
+          .hero-title { font-size: clamp(30px, 8.5vw, 50px) !important; margin-bottom: 10px !important; text-shadow: 0 2px 24px rgba(0,0,0,0.9) !important; line-height: 1.05 !important; }
+          .hero-sub { font-size: 13px !important; color: rgba(247,246,242,0.82) !important; margin-bottom: 18px !important; max-width: 100% !important; text-shadow: 0 1px 8px rgba(0,0,0,0.8) !important; }
           .hero-img-panel { display: none !important; }
           .hero-counter { display: none; }
-          .hero-arrow-btn {
-            width: 36px !important;
-            height: 36px !important;
-            top: 40% !important;
-          }
-          .hero-dots {
-            bottom: 56px !important;
-          }
+          .hero-arrow-btn { width: 36px !important; height: 36px !important; top: 40% !important; }
+          .hero-dots { bottom: 56px !important; }
         }
       `}</style>
 
@@ -258,7 +281,7 @@ export default function Home() {
           <div key={i} style={{ position: "absolute", inset: 0, opacity: i === currentSlide ? 1 : 0, transition: "opacity 1s ease", pointerEvents: i === currentSlide ? "all" : "none" }}>
             <img src={slide.image} alt={slide.title} className="hero-bg-img" onError={e => e.target.src = "/tshirt1.jpg"} />
             <div className="hero-overlay" />
-            <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }} >
+            <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }}>
               <div className="hero-content-wrap" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center" }}>
                 <div className="hero-text-block">
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 100, padding: "4px 14px", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: 2, marginBottom: 16, textTransform: "uppercase" }}>
@@ -274,8 +297,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-
-              {/* Right image panel — desktop only */}
               <div className="hero-img-panel">
                 <img src={slide.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = "/tshirt1.jpg"} />
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(13,13,13,0.85) 0%, transparent 45%)" }} />
@@ -284,7 +305,6 @@ export default function Home() {
           </div>
         ))}
 
-        {/* Arrow controls */}
         {[["left", prevSlide, ChevronLeft], ["right", nextSlide, ChevronRight]].map(([side, fn, Icon]) => (
           <button key={side} onClick={fn} className="hero-arrow-btn" style={{
             position: "absolute", [side]: 16, top: "50%", transform: "translateY(-50%)",
@@ -297,7 +317,6 @@ export default function Home() {
           </button>
         ))}
 
-        {/* Dot indicators */}
         <div className="hero-dots" style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 10 }}>
           {slides.map((_, i) => (
             <button key={i} onClick={() => setCurrentSlide(i)} style={{ width: i === currentSlide ? 28 : 7, height: 7, borderRadius: 4, background: i === currentSlide ? "var(--accent)" : "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", transition: "all 0.3s ease", padding: 0 }} />
@@ -385,35 +404,24 @@ export default function Home() {
 
       {/* CTA Banner */}
       <section style={{ background: "var(--accent)", padding: "64px 0", overflow: "hidden", position: "relative" }}>
-        {/* Background animated shapes */}
         <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
           {[...Array(6)].map((_, i) => (
-            <div key={i} style={{
-              position: "absolute",
-              borderRadius: "50%",
-              background: "rgba(13,13,13,0.06)",
-              width: `${80 + i * 40}px`,
-              height: `${80 + i * 40}px`,
-              top: `${10 + (i % 3) * 30}%`,
-              left: `${(i * 18) % 90}%`,
-              animation: `floatBubble ${4 + i}s ease-in-out infinite alternate`,
-              animationDelay: `${i * 0.5}s`,
-            }} />
+            <div key={i} style={{ position: "absolute", borderRadius: "50%", background: "rgba(13,13,13,0.06)", width: `${80 + i * 40}px`, height: `${80 + i * 40}px`, top: `${10 + (i % 3) * 30}%`, left: `${(i * 18) % 90}%`, animation: `floatBubble ${4 + i}s ease-in-out infinite alternate`, animationDelay: `${i * 0.5}s` }} />
           ))}
         </div>
         <div className="container" style={{ textAlign: "center", position: "relative", zIndex: 1 }}>
-          <div style={{ display: "inline-block", background: "rgba(13,13,13,0.1)", borderRadius: 100, padding: "4px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "rgba(13,13,13,0.7)", textTransform: "uppercase", marginBottom: 16, animation: "fadeInUp 0.6s ease" }}>
+          <div style={{ display: "inline-block", background: "rgba(13,13,13,0.1)", borderRadius: 100, padding: "4px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "rgba(13,13,13,0.7)", textTransform: "uppercase", marginBottom: 16 }}>
             ✦ FITRO DROP
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px,5vw,60px)", fontWeight: 600, color: "var(--ink)", marginBottom: 12, animation: "fadeInUp 0.7s ease" }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px,5vw,60px)", fontWeight: 600, color: "var(--ink)", marginBottom: 12 }}>
             Fitted. Raw. Real.
           </div>
-          <p style={{ color: "rgba(13,13,13,0.6)", fontSize: "clamp(13px,1.8vw,16px)", marginBottom: 28, fontWeight: 500, animation: "fadeInUp 0.8s ease" }}>
+          <p style={{ color: "rgba(13,13,13,0.6)", fontSize: "clamp(13px,1.8vw,16px)", marginBottom: 28, fontWeight: 500 }}>
             Premium streetwear built for those who move with purpose.
           </p>
-          <Link to="/shop" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "var(--ink)", color: "var(--accent)", padding: "14px 30px", borderRadius: "var(--radius)", fontWeight: 600, fontSize: 14, textDecoration: "none", transition: "all 0.3s", animation: "fadeInUp 0.9s ease", boxShadow: "0 8px 30px rgba(13,13,13,0.25)" }}
-            onMouseEnter={e => { e.currentTarget.style.background = "var(--ink2)"; e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 14px 40px rgba(13,13,13,0.35)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "var(--ink)"; e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 30px rgba(13,13,13,0.25)"; }}>
+          <Link to="/shop" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "var(--ink)", color: "var(--accent)", padding: "14px 30px", borderRadius: "var(--radius)", fontWeight: 600, fontSize: 14, textDecoration: "none", transition: "all 0.3s", boxShadow: "0 8px 30px rgba(13,13,13,0.25)" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--ink2)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "var(--ink)"; e.currentTarget.style.transform = "translateY(0)"; }}>
             Shop All Drops <ArrowRight size={14} />
           </Link>
         </div>
@@ -425,3 +433,4 @@ export default function Home() {
     </div>
   );
 }
+ 
