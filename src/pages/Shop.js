@@ -39,7 +39,7 @@ export default function Shop() {
     setActiveSubcat(sub);
   }, [searchParams]);
 
-  // Get subcategories for active main category
+  // Get subcategories for active main category (stored as array in category doc)
   const currentCatDoc = categories.find(c => c.name === activeCategory);
   const subcats = currentCatDoc?.subcategories?.length > 0 ? currentCatDoc.subcategories : [];
 
@@ -103,14 +103,11 @@ export default function Shop() {
       {/* Main Category tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: subcats.length > 0 ? 12 : 32, flexWrap: "wrap" }}>
         {mainCats.map(cat => (
-          <button key={cat} onClick={() => selectCat(cat)}
-            className={`tag ${activeCategory === cat ? "active" : ""}`}>
-            {cat}
-          </button>
+          <button key={cat} onClick={() => selectCat(cat)} className={`tag ${activeCategory === cat ? "active" : ""}`}>{cat}</button>
         ))}
       </div>
 
-      {/* Subcategory tabs — shown only when a main category with subcats is selected */}
+      {/* Subcategory tabs */}
       {subcats.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 32, flexWrap: "wrap", paddingLeft: 4 }}>
           <div style={{ width: "100%", fontSize: 10, color: "var(--muted)", letterSpacing: 2, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>
@@ -119,16 +116,12 @@ export default function Shop() {
           {["All", ...subcats].map(sub => (
             <button key={sub} onClick={() => selectSubcat(sub)}
               style={{
-                padding: "6px 16px",
-                borderRadius: 20,
+                padding: "6px 16px", borderRadius: 20,
                 border: activeSubcat === sub ? "1px solid var(--accent)" : "1px solid var(--border2)",
                 background: activeSubcat === sub ? "rgba(232,197,71,0.12)" : "transparent",
                 color: activeSubcat === sub ? "var(--accent)" : "var(--muted)",
-                fontSize: 12,
-                fontWeight: activeSubcat === sub ? 600 : 400,
-                cursor: "pointer",
-                transition: "all 0.2s",
-                letterSpacing: 0.5,
+                fontSize: 12, fontWeight: activeSubcat === sub ? 600 : 400,
+                cursor: "pointer", transition: "all 0.2s", letterSpacing: 0.5,
               }}>
               {sub === "All" ? `All ${activeCategory}` : sub}
             </button>
