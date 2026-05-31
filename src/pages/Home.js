@@ -90,10 +90,9 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
   const cardRef = useRef(null);
   const isTouch = isTouchDevice();
 
-  // Preload ALL images immediately on mount
+  // Preload ALL images immediately including index 0 — gets ImgBB into cache fast
   useEffect(() => {
     images.forEach((src, i) => {
-      if (i === 0) return;
       const img = new window.Image();
       img.src = src;
       img.onload = () => setLoaded(prev => ({ ...prev, [i]: true }));
@@ -172,7 +171,7 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
               key={src + i}
               src={src}
               alt={i === 0 ? product.name : ""}
-              loading={i === 0 ? "eager" : "lazy"}
+              loading="eager"
               decoding="async"
               fetchpriority={i === 0 ? "high" : "low"}
               style={{
@@ -276,6 +275,13 @@ export default function Home() {
         const prods = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         prods.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         setProducts(prods.slice(0, 8));
+        // Preload all product images immediately into browser cache
+        prods.slice(0, 8).forEach(p => {
+          (p.images || []).filter(Boolean).forEach(src => {
+            const img = new window.Image();
+            img.src = src;
+          });
+        });
       } catch (e) {}
       setLoading(false);
       try {
@@ -371,7 +377,7 @@ export default function Home() {
               src={slide.image}
               alt={slide.title}
               className="hero-bg-img"
-              loading={i === 0 ? "eager" : "lazy"}
+              loading="eager"
               decoding="async"
               fetchpriority={i === 0 ? "high" : "low"}
               onError={e => e.target.src = "/tshirt1.jpg"}
