@@ -65,89 +65,151 @@ const DEFAULT_FEATURES = [
   { icon: "🔒", title: "Secure Payments", desc: "Razorpay · UPI · COD" },
 ];
 
+// Detect touch device once at module level
+const isTouchDevice = () => typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+// ─── ProductCard: hover on desktop, tap-and-hold on mobile ───────────────────
 export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
   const { currentUser } = useAuth();
   const { isWishlisted, toggle } = useWishlist();
   const wl = wishlisted !== undefined ? wishlisted : isWishlisted(product.id);
   const handleWishlist = onWishlist || ((e) => { e.stopPropagation(); toggle(product.id); });
   const discount = product.mrp && product.mrp > product.price ? Math.round((1 - product.price / product.mrp) * 100) : null;
+
   const stockMap = (product.stock && typeof product.stock === "object") ? product.stock : null;
   const totalStock = stockMap ? Object.values(stockMap).reduce((s, v) => s + v, 0) : (typeof product.stock === "number" ? product.stock : 999);
   const isOOS = totalStock === 0;
 
-  // Multi-image scroll logic
-  const images = (product.images?.filter(Boolean).length > 0) ? product.images.filter(Boolean) : ["/tshirt1.jpg"];
-  const [imgIndex, setImgIndex] = useState(0);
+  const images = product.images?.filter(Boolean).length > 0 ? product.images.filter(Boolean) : ["/tshirt1.jpg"];
+  const [imgIdx, setImgIdx] = useState(0);
+  const [loaded, setLoaded] = useState({});
+  const [touching, setTouching] = useState(false); // mobile touch active
   const intervalRef = useRef(null);
-  const isMobile = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  const hoveringRef = useRef(false);
+  const touchTimerRef = useRef(null); // delay before scroll starts on touch
+  const cardRef = useRef(null);
+  const isTouch = isTouchDevice();
 
-  // Preload images
+  // Preload ALL images immediately on mount
   useEffect(() => {
     images.forEach((src, i) => {
       if (i === 0) return;
       const img = new window.Image();
       img.src = src;
+      img.onload = () => setLoaded(prev => ({ ...prev, [i]: true }));
     });
   }, [product.id]);
 
-  // Desktop: hover to scroll
-  function handleMouseEnter() {
-    if (isMobile || images.length <= 1) return;
-    setImgIndex(1);
-    intervalRef.current = setInterval(() => setImgIndex(i => (i + 1) % images.length), 900);
-  }
-  function handleMouseLeave() {
-    if (isMobile) return;
-    clearInterval(intervalRef.current);
-    setImgIndex(0);
+  // ── DESKTOP: mouse hover ──
+  function startScroll() {
+    if (isTouch || images.length <= 1) return;
+    hoveringRef.current = true;
+    setTimeout(() => {
+      if (!hoveringRef.current) return;
+      setImgIdx(1);
+      intervalRef.current = setInterval(() => {
+        setImgIdx(prev => (prev + 1) % images.length);
+      }, 900);
+    }, 120);
   }
 
-  // Mobile: touch the image box → instant scroll
+  function stopScroll() {
+    if (isTouch) return;
+    hoveringRef.current = false;
+    clearInterval(intervalRef.current);
+    setImgIdx(0);
+  }
+
+  // ── MOBILE: finger touch ──
   function handleTouchStart(e) {
-    if (!isMobile || images.length <= 1) return;
-    e.stopPropagation();
-    clearInterval(intervalRef.current);
-    setImgIndex(i => (i + 1) % images.length); // instant first jump
-    intervalRef.current = setInterval(() => setImgIndex(i => (i + 1) % images.length), 700);
-  }
-  function handleTouchEnd(e) {
-    if (!isMobile) return;
-    e.stopPropagation();
-    clearInterval(intervalRef.current);
+    if (!isTouch || images.length <= 1) return;
+    // Short delay so normal taps (to open product) don't trigger scroll
+    touchTimerRef.current = setTimeout(() => {
+      setTouching(true);
+      setImgIdx(1);
+      intervalRef.current = setInterval(() => {
+        setImgIdx(prev => (prev + 1) % images.length);
+      }, 800);
+    }, 180);
   }
 
-  useEffect(() => () => clearInterval(intervalRef.current), []);
+  function handleTouchEnd(e) {
+    if (!isTouch) return;
+    clearTimeout(touchTimerRef.current);
+    if (touching) {
+      // Was scrolling — stop scroll, prevent navigation to product page
+      e.preventDefault();
+      clearInterval(intervalRef.current);
+      setTouching(false);
+      setImgIdx(0);
+    }
+    // If not yet scrolling (quick tap) — do nothing, let onClick fire normally
+  }
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    clearInterval(intervalRef.current);
+    clearTimeout(touchTimerRef.current);
+  }, []);
 
   return (
-    <div className="product-card" onClick={onClick} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <div
-        style={{ position: "relative", overflow: "hidden", background: "var(--ink3)" }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div style={{ position: "relative", width: "100%", paddingBottom: "133.33%" }}>
+    <div
+      ref={cardRef}
+      className="product-card"
+      onClick={touching ? undefined : onClick}
+      onMouseEnter={startScroll}
+      onMouseLeave={stopScroll}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{ userSelect: "none", WebkitUserSelect: "none" }}
+    >
+      <div style={{ position: "relative", overflow: "hidden", background: "var(--ink3)" }}>
+
+        {/* Stack ALL images — fixed height container, all imgs absolute */}
+        <div style={{ position: "relative", width: "100%", paddingBottom: "133.33%" /* 3:4 ratio */ }}>
           {images.map((src, i) => (
             <img
               key={src + i}
               src={src}
               alt={i === 0 ? product.name : ""}
               loading={i === 0 ? "eager" : "lazy"}
+              decoding="async"
+              fetchpriority={i === 0 ? "high" : "low"}
               style={{
-                position: "absolute", top: 0, left: 0,
-                width: "100%", height: "100%", objectFit: "cover",
-                opacity: i === imgIndex ? 1 : 0,
+                position: "absolute",
+                top: 0, left: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                opacity: i === imgIdx ? 1 : 0,
                 transition: "opacity 0.3s ease",
               }}
-              onError={e => { e.target.style.opacity = "0"; }}
+              onError={e => {
+                // Try to hide broken image and show next available
+                e.target.style.opacity = "0";
+                e.target.style.display = "none";
+              }}
+              onLoad={() => setLoaded(prev => ({ ...prev, [i]: true }))}
             />
           ))}
+          {/* Skeleton shown while first image loads */}
+          {!loaded[0] && (
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, var(--ink3) 0%, var(--ink2) 50%, var(--ink3) 100%)", backgroundSize: "200% 200%", animation: "shimmer 1.5s infinite" }} />
+          )}
         </div>
 
         {/* Dot indicators */}
         {images.length > 1 && (
-          <div style={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, zIndex: 5, pointerEvents: "none" }}>
+          <div style={{
+            position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
+            display: "flex", gap: 4, zIndex: 5, pointerEvents: "none"
+          }}>
             {images.map((_, i) => (
-              <div key={i} style={{ width: i === imgIndex ? 14 : 5, height: 5, borderRadius: 3, background: i === imgIndex ? "var(--accent)" : "rgba(255,255,255,0.45)", transition: "all 0.3s ease" }} />
+              <div key={i} style={{
+                width: i === imgIdx ? 14 : 5, height: 5, borderRadius: 3,
+                background: i === imgIdx ? "var(--accent)" : "rgba(255,255,255,0.45)",
+                transition: "all 0.3s ease"
+              }} />
             ))}
           </div>
         )}
@@ -178,6 +240,7 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
           </button>
         )}
       </div>
+
       <div className="product-card-body">
         <div style={{ fontSize: 10, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4, fontWeight: 500 }}>{product.category}</div>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 15, marginBottom: 7, color: "var(--light)", lineHeight: 1.2 }}>{product.name}</div>
@@ -192,12 +255,14 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
   );
 }
 
+// ─── Home page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [slides, setSlides] = useState(DEFAULT_SLIDES);
   const [features, setFeatures] = useState(DEFAULT_FEATURES);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [slideReady, setSlideReady] = useState({}); // hero slide images preloaded
   const [categories, setCategories] = useState([]);
   const [catImages, setCatImages] = useState({});
   const slideTimer = useRef(null);
@@ -233,13 +298,28 @@ export default function Home() {
     })();
   }, []);
 
+  // Preload hero slide images eagerly so autoscroll is instant
   useEffect(() => {
+    slides.forEach((slide, i) => {
+      const img = new window.Image();
+      img.src = slide.image;
+      img.onload = () => setSlideReady(prev => ({ ...prev, [i]: true }));
+    });
+  }, [slides]);
+
+  // Autoscroll hero — restart cleanly when slides change
+  function resetSlideTimer() {
+    clearInterval(slideTimer.current);
     slideTimer.current = setInterval(() => setCurrentSlide(p => (p + 1) % slides.length), 5000);
+  }
+
+  useEffect(() => {
+    resetSlideTimer();
     return () => clearInterval(slideTimer.current);
   }, [slides.length]);
 
-  function nextSlide() { clearInterval(slideTimer.current); setCurrentSlide(p => (p + 1) % slides.length); }
-  function prevSlide() { clearInterval(slideTimer.current); setCurrentSlide(p => (p - 1 + slides.length) % slides.length); }
+  function nextSlide() { setCurrentSlide(p => (p + 1) % slides.length); resetSlideTimer(); }
+  function prevSlide() { setCurrentSlide(p => (p - 1 + slides.length) % slides.length); resetSlideTimer(); }
 
   const defaultCatImages = { Mens: "/tshirt2.jpg", Womens: "/tshirt3.png", Unisex: "/tshirt1.jpg" };
   const getCatImg = (name) => catImages[name] || defaultCatImages[name] || "/tshirt4.png";
@@ -251,6 +331,7 @@ export default function Home() {
     <div>
       {/* HERO */}
       <style>{`
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         .hero-section { position: relative; height: clamp(520px, 92vh, 860px); overflow: hidden; background: var(--ink); }
         .hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; opacity: 0.28; }
         .hero-overlay { position: absolute; inset: 0; background: linear-gradient(105deg, rgba(13,13,13,0.97) 35%, rgba(13,13,13,0.35) 100%); }
@@ -277,9 +358,24 @@ export default function Home() {
       `}</style>
 
       <section className="hero-section">
+        {/* All slides stacked — switch with opacity, never unmount/remount */}
         {slides.map((slide, i) => (
-          <div key={i} style={{ position: "absolute", inset: 0, opacity: i === currentSlide ? 1 : 0, transition: "opacity 1s ease", pointerEvents: i === currentSlide ? "all" : "none" }}>
-            <img src={slide.image} alt={slide.title} className="hero-bg-img" onError={e => e.target.src = "/tshirt1.jpg"} />
+          <div key={i} style={{
+            position: "absolute", inset: 0,
+            opacity: i === currentSlide ? 1 : 0,
+            transition: "opacity 0.9s ease",
+            pointerEvents: i === currentSlide ? "all" : "none",
+            willChange: "opacity",
+          }}>
+            <img
+              src={slide.image}
+              alt={slide.title}
+              className="hero-bg-img"
+              loading={i === 0 ? "eager" : "lazy"}
+              decoding="async"
+              fetchpriority={i === 0 ? "high" : "low"}
+              onError={e => e.target.src = "/tshirt1.jpg"}
+            />
             <div className="hero-overlay" />
             <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }}>
               <div className="hero-content-wrap" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center" }}>
@@ -297,15 +393,25 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+
+              {/* Right image panel — desktop only */}
               <div className="hero-img-panel">
-                <img src={slide.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = "/tshirt1.jpg"} />
+                <img
+                  src={slide.image}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  loading={i === 0 ? "eager" : "lazy"}
+                  decoding="async"
+                  onError={e => e.target.src = "/tshirt1.jpg"}
+                />
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(13,13,13,0.85) 0%, transparent 45%)" }} />
               </div>
             </div>
           </div>
         ))}
 
-        {[["left", prevSlide, ChevronLeft], ["right", nextSlide, ChevronRight]].map(([side, fn, Icon]) => (
+        {/* Arrow controls */}
+        {[[("left"), prevSlide, ChevronLeft], [("right"), nextSlide, ChevronRight]].map(([side, fn, Icon]) => (
           <button key={side} onClick={fn} className="hero-arrow-btn" style={{
             position: "absolute", [side]: 16, top: "50%", transform: "translateY(-50%)",
             background: "rgba(247,246,242,0.09)", backdropFilter: "blur(12px)",
@@ -317,9 +423,10 @@ export default function Home() {
           </button>
         ))}
 
+        {/* Dot indicators */}
         <div className="hero-dots" style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 10 }}>
           {slides.map((_, i) => (
-            <button key={i} onClick={() => setCurrentSlide(i)} style={{ width: i === currentSlide ? 28 : 7, height: 7, borderRadius: 4, background: i === currentSlide ? "var(--accent)" : "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", transition: "all 0.3s ease", padding: 0 }} />
+            <button key={i} onClick={() => { setCurrentSlide(i); resetSlideTimer(); }} style={{ width: i === currentSlide ? 28 : 7, height: 7, borderRadius: 4, background: i === currentSlide ? "var(--accent)" : "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", transition: "all 0.3s ease", padding: 0 }} />
           ))}
         </div>
 
@@ -354,13 +461,20 @@ export default function Home() {
           </div>
           <div className="grid-3">
             {displayCats.map((cat) => (
-              <Link key={cat.name} to={`/shop?cat=${cat.name}`} style={{ position: "relative", borderRadius: 16, overflow: "hidden", display: "block", aspectRatio: "4/5", textDecoration: "none", transition: "transform 0.3s ease, box-shadow 0.3s ease" }}
+              <Link key={cat.name} to={`/shop?cat=${cat.name}`}
+                style={{ position: "relative", borderRadius: 16, overflow: "hidden", display: "block", aspectRatio: "4/5", textDecoration: "none", transition: "transform 0.3s ease, box-shadow 0.3s ease" }}
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-6px)"; e.currentTarget.style.boxShadow = "0 20px 50px rgba(0,0,0,0.5)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
-                <img src={cat.img} alt={cat.name} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.5s ease" }}
+                <img
+                  src={cat.img}
+                  alt={cat.name}
+                  loading="lazy"
+                  decoding="async"
+                  style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.5s ease" }}
                   onMouseEnter={e => e.target.style.transform = "scale(1.06)"}
                   onMouseLeave={e => e.target.style.transform = "scale(1)"}
-                  onError={e => e.target.src = "/tshirt1.jpg"} />
+                  onError={e => e.target.src = "/tshirt1.jpg"}
+                />
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(13,13,13,0.88) 0%, transparent 50%)" }} />
                 <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "22px 20px" }}>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 600, color: "var(--light)", marginBottom: 6 }}>{cat.name}</div>
@@ -406,7 +520,13 @@ export default function Home() {
       <section style={{ background: "var(--accent)", padding: "64px 0", overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
           {[...Array(6)].map((_, i) => (
-            <div key={i} style={{ position: "absolute", borderRadius: "50%", background: "rgba(13,13,13,0.06)", width: `${80 + i * 40}px`, height: `${80 + i * 40}px`, top: `${10 + (i % 3) * 30}%`, left: `${(i * 18) % 90}%`, animation: `floatBubble ${4 + i}s ease-in-out infinite alternate`, animationDelay: `${i * 0.5}s` }} />
+            <div key={i} style={{
+              position: "absolute", borderRadius: "50%", background: "rgba(13,13,13,0.06)",
+              width: `${80 + i * 40}px`, height: `${80 + i * 40}px`,
+              top: `${10 + (i % 3) * 30}%`, left: `${(i * 18) % 90}%`,
+              animation: `floatBubble ${4 + i}s ease-in-out infinite alternate`,
+              animationDelay: `${i * 0.5}s`,
+            }} />
           ))}
         </div>
         <div className="container" style={{ textAlign: "center", position: "relative", zIndex: 1 }}>
@@ -419,7 +539,8 @@ export default function Home() {
           <p style={{ color: "rgba(13,13,13,0.6)", fontSize: "clamp(13px,1.8vw,16px)", marginBottom: 28, fontWeight: 500 }}>
             Premium streetwear built for those who move with purpose.
           </p>
-          <Link to="/shop" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "var(--ink)", color: "var(--accent)", padding: "14px 30px", borderRadius: "var(--radius)", fontWeight: 600, fontSize: 14, textDecoration: "none", transition: "all 0.3s", boxShadow: "0 8px 30px rgba(13,13,13,0.25)" }}
+          <Link to="/shop"
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "var(--ink)", color: "var(--accent)", padding: "14px 30px", borderRadius: "var(--radius)", fontWeight: 600, fontSize: 14, textDecoration: "none", transition: "all 0.3s", boxShadow: "0 8px 30px rgba(13,13,13,0.25)" }}
             onMouseEnter={e => { e.currentTarget.style.background = "var(--ink2)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "var(--ink)"; e.currentTarget.style.transform = "translateY(0)"; }}>
             Shop All Drops <ArrowRight size={14} />
@@ -427,10 +548,8 @@ export default function Home() {
         </div>
         <style>{`
           @keyframes floatBubble { from { transform: translateY(0) scale(1); } to { transform: translateY(-20px) scale(1.05); } }
-          @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         `}</style>
       </section>
     </div>
   );
 }
- 
