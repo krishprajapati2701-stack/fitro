@@ -25,8 +25,16 @@ export default function Shop() {
           getDocs(collection(db, "products")),
           getDocs(collection(db, "categories")),
         ]);
-        setProducts(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const prods = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setProducts(prods);
         setCategories(catSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        // Preload first image of each product immediately
+        prods.forEach(p => {
+          if (p.images?.[0]) {
+            const img = new window.Image();
+            img.src = p.images[0];
+          }
+        });
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
