@@ -2,11 +2,10 @@ import React, { useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, ShoppingBag, Package, MessageSquare, Star, RotateCcw, Settings, LogOut, Plus, Trash2, Edit, Check, X, Truck, Save, Tag, Image, Layout, ChevronUp, ChevronDown, Globe, Gift, AlertTriangle, RefreshCw, ClipboardCheck, FileText, Upload, Loader } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Package, MessageSquare, Star, RotateCcw, Settings, LogOut, Plus, Trash2, Edit, Check, X, Truck, Save, Tag, Image, Layout, ChevronUp, ChevronDown, Globe, Gift, AlertTriangle, RefreshCw, ClipboardCheck, FileText } from "lucide-react";
 import AdminSiteSettings from "./AdminSiteSettings";
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where, getDoc, setDoc, runTransaction } from "firebase/firestore";
-import { db, storage } from "../firebase";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { db } from "../firebase";
 import toast from "react-hot-toast";
 
 const DEFAULT_SLIDES = [
@@ -325,7 +324,6 @@ function AdminProducts() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [allCatsData, setAllCatsData] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
   const [restockModal, setRestockModal] = useState(null);
   const [restockData, setRestockData] = useState({});
   const [restockSaving, setRestockSaving] = useState(false);
@@ -351,43 +349,10 @@ function AdminProducts() {
   const catNames = allCatsData.length > 0 ? allCatsData.map(c => c.name) : ["Mens", "Womens", "Unisex"];
   const set = k => e => setForm(prev => ({ ...prev, [k]: e.target.value }));
 
-  // ── Firebase Storage upload ──
-  async function uploadImage(file, index) {
-    return new Promise((resolve, reject) => {
-      const ext = file.name.split(".").pop();
-      const fileName = `products/${Date.now()}_${index}.${ext}`;
-      const storageRef = ref(storage, fileName);
-      const task = uploadBytesResumable(storageRef, file);
-      task.on("state_changed",
-        snap => setUploadProgress(prev => ({ ...prev, [index]: Math.round((snap.bytesTransferred / snap.totalBytes) * 100) })),
-        err => reject(err),
-        async () => { const url = await getDownloadURL(task.snapshot.ref); resolve(url); }
-      );
-    });
-  }
-
-  async function handleFileSelect(file, index) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return toast.error("Please select an image file");
-    if (file.size > 10 * 1024 * 1024) return toast.error("Image must be under 10MB");
-    try {
-      setUploadProgress(prev => ({ ...prev, [index]: 1 }));
-      const url = await uploadImage(file, index);
-      const next = [...form.imageList]; next[index] = url;
-      setForm(prev => ({ ...prev, imageList: next }));
-      setUploadProgress(prev => ({ ...prev, [index]: 100 }));
-      toast.success(`Photo ${index + 1} uploaded! ✅`);
-    } catch (e) {
-      setUploadProgress(prev => { const p = {...prev}; delete p[index]; return p; });
-      toast.error("Upload failed. Check Firebase Storage rules.");
-    }
-  }
-
   function openNew() {
     setEditing(null);
     const defaultCat = catNames[0] || "Mens";
     setForm({ ...EMPTY_FORM, category: defaultCat, subcategory: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } });
-    setUploadProgress({});
     setStep(1); setModal(true);
   }
 
@@ -406,14 +371,12 @@ function AdminProducts() {
       sizes.forEach(s => { stockPerSize[s] = flatStock; });
     }
     setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
-    setUploadProgress({});
     setStep(1); setModal(true);
   }
 
   async function saveProduct() {
     if (!form.name || !form.price) return toast.error("Product name and price are required!");
-    if (!form.imageList.some(u => u.trim())) return toast.error("Upload at least one photo!");
-    if (Object.values(uploadProgress).some(p => p > 0 && p < 100)) return toast.error("Please wait for uploads to finish!");
+    if (!form.imageList.some(u => u.trim())) return toast.error("Add at least one image URL!");
     setSaving(true);
     const parsedSizes = form.sizes.split(",").map(s => s.trim()).filter(Boolean);
     const stockObj = {};
@@ -433,7 +396,6 @@ function AdminProducts() {
       else { await addDoc(collection(db, "products"), { ...data, createdAt: serverTimestamp() }); toast.success("🔥 Product added!"); }
       setModal(false); setEditing(null);
       setForm({ ...EMPTY_FORM, category: catNames[0] || "Mens", subcategory: "", stockPerSize: {} });
-      setUploadProgress({});
       fetchProducts();
     } catch (e) { toast.error("Failed to save"); }
     setSaving(false);
@@ -666,94 +628,54 @@ function AdminProducts() {
               </div>
             )}
 
-            {/* STEP 3 — Direct file upload */}
+            {/* STEP 3: Images — ImgBB URL input */}
             {step === 3 && (
               <div>
-                <div style={{ background: "rgba(212,255,0,0.05)", border: "1px solid rgba(212,255,0,0.15)", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 16 }}>
-                  <strong style={{ color: "var(--accent)" }}>📸 Upload photos directly from your device</strong>
-                  <div style={{ color: "var(--muted)", marginTop: 5, lineHeight: 1.7 }}>
-                    Tap any slot → pick a photo from your phone or laptop. No links needed!<br/>
+                <div style={{ background: "rgba(232,197,71,0.06)", border: "1px solid rgba(232,197,71,0.15)", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 16 }}>
+                  <strong style={{ color: "var(--accent)" }}>📸 How to add images:</strong>
+                  <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
+                    Upload photo to <a href="https://imgbb.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>imgbb.com</a> → copy <strong style={{ color: "var(--light)" }}>Direct Link</strong> → paste below.<br />
                     Add 2–3 angles so users can swipe through on the product page.
                   </div>
                 </div>
-
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {form.imageList.map((url, i) => {
-                    const progress = uploadProgress[i];
-                    const isUploading = progress !== undefined && progress > 0 && progress < 100;
-                    const isDone = url.trim().length > 0;
-                    return (
-                      <div key={i} style={{ background: "var(--ink3)", border: `1px solid ${isDone ? "rgba(74,222,128,0.3)" : "var(--border)"}`, borderRadius: 12, padding: "12px 14px", transition: "border 0.2s" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          {/* Tap to pick photo */}
-                          <label htmlFor={`img-upload-${i}`} style={{ cursor: isUploading ? "not-allowed" : "pointer", flexShrink: 0 }}>
-                            <div style={{ width: 72, height: 90, borderRadius: 10, overflow: "hidden", border: `2px dashed ${isDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`, background: isDone ? "transparent" : "var(--ink2)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                              {isDone ? (
-                                <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = ""} />
-                              ) : isUploading ? (
-                                <div style={{ textAlign: "center" }}>
-                                  <Loader size={18} color="var(--accent)" style={{ animation: "spin 1s linear infinite" }} />
-                                  <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 4, fontWeight: 700 }}>{progress}%</div>
-                                </div>
-                              ) : (
-                                <div style={{ textAlign: "center", color: "var(--muted)" }}>
-                                  <Upload size={18} />
-                                  <div style={{ fontSize: 9, marginTop: 4, fontWeight: 600 }}>TAP</div>
-                                </div>
-                              )}
-                              {isUploading && (
-                                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: "var(--ink3)" }}>
-                                  <div style={{ height: "100%", width: `${progress}%`, background: "var(--accent)", transition: "width 0.2s" }} />
-                                </div>
-                              )}
-                            </div>
-                            <input id={`img-upload-${i}`} type="file" accept="image/*" style={{ display: "none" }} disabled={isUploading}
-                              onChange={e => { if (e.target.files[0]) handleFileSelect(e.target.files[0], i); e.target.value = ""; }} />
-                          </label>
-
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                              <div style={{ width: 20, height: 20, borderRadius: 5, background: isDone ? "rgba(74,222,128,0.2)" : "var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: isDone ? "#4ade80" : "var(--muted)" }}>{isDone ? "✓" : i + 1}</div>
-                              <span style={{ fontSize: 13, fontWeight: 600 }}>
-                                {i === 0 ? "Main Photo" : `Photo ${i + 1}`}
-                                {i === 0 && <span style={{ color: "var(--orange)", marginLeft: 4 }}>*</span>}
-                                {i > 0 && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 6, fontSize: 11 }}>(optional)</span>}
-                              </span>
-                            </div>
-                            {isDone ? (
-                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <span style={{ fontSize: 11, color: "#4ade80" }}>✅ Uploaded!</span>
-                                <label htmlFor={`img-upload-${i}`} style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}>Change</label>
-                                <button onClick={() => { const next = [...form.imageList]; next[i] = ""; setForm(p => ({...p, imageList: next})); setUploadProgress(p => { const n = {...p}; delete n[i]; return n; }); }}
-                                  style={{ fontSize: 11, color: "#f87171", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>Remove</button>
-                              </div>
-                            ) : isUploading ? (
-                              <div style={{ fontSize: 11, color: "var(--accent)" }}>Uploading... {progress}%</div>
-                            ) : (
-                              <label htmlFor={`img-upload-${i}`}>
-                                <div className="btn btn-secondary" style={{ fontSize: 11, padding: "5px 12px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                  <Upload size={11} /> Choose Photo
-                                </div>
-                              </label>
-                            )}
+                  {form.imageList.map((url, i) => (
+                    <div key={i} style={{ background: "var(--ink3)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 6, background: url.trim() ? "var(--accent)" : "var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: url.trim() ? "var(--ink)" : "var(--muted)", flexShrink: 0 }}>{i + 1}</div>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>
+                          {i === 0 ? "Main Photo" : `Photo ${i + 1}`}
+                          {i === 0 && <span style={{ color: "var(--orange)", marginLeft: 4 }}>*</span>}
+                          {i > 0 && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 6, fontSize: 11 }}>(optional)</span>}
+                        </span>
+                      </div>
+                      <input
+                        type="text" value={url}
+                        onChange={e => { const next = [...form.imageList]; next[i] = e.target.value; setForm(prev => ({ ...prev, imageList: next })); }}
+                        placeholder={i === 0 ? "https://i.ibb.co/... (required)" : "https://i.ibb.co/... (different angle)"}
+                        className="input" style={{ fontSize: 12, marginBottom: url.trim() ? 10 : 0 }}
+                      />
+                      {url.trim() && (
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                          <div style={{ width: 60, height: 76, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", flexShrink: 0 }}>
+                            <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.parentElement.style.opacity = "0.3"; }} />
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--muted)", paddingTop: 2, lineHeight: 1.6 }}>
+                            {i === 0 ? "Main image shown in shop grid." : "Users swipe to see this image."}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      )}
+                    </div>
+                  ))}
                 </div>
-
                 {filledImages.length > 0 && (
                   <div style={{ marginTop: 12, background: "rgba(74,222,128,0.07)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 10, padding: "10px 14px", fontSize: 12 }}>
-                    ✅ <strong style={{ color: "#4ade80" }}>{filledImages.length} photo{filledImages.length > 1 ? "s" : ""}</strong> ready — users can swipe all of them.
+                    ✅ <strong style={{ color: "#4ade80" }}>{filledImages.length} image{filledImages.length > 1 ? "s" : ""}</strong> ready — users can swipe all of them.
                   </div>
                 )}
-
-                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-
                 <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 18 }}>
                   <button onClick={() => setStep(2)} className="btn btn-secondary">← Back</button>
-                  <button onClick={saveProduct} className="btn btn-primary" disabled={saving || Object.values(uploadProgress).some(p => p > 0 && p < 100)} style={{ minWidth: 140, justifyContent: "center" }}>
+                  <button onClick={saveProduct} className="btn btn-primary" disabled={saving} style={{ minWidth: 140, justifyContent: "center" }}>
                     <Save size={14} /> {saving ? "Saving..." : editing ? "Save Changes" : "Add Product 🔥"}
                   </button>
                 </div>
