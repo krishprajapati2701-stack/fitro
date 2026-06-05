@@ -365,7 +365,7 @@ export function Checkout() {
     try {
       const options = {
         // ⚠️ Replace with your actual Razorpay Key ID from razorpay.com dashboard
-        key: "rzp_live_SWdAQTV5mEVY85",
+        key: "rzp_live_YOUR_KEY_HERE",
         amount: finalTotal * 100, // paise
         currency: "INR",
         name: "FITRO",
