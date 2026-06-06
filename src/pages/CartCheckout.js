@@ -42,9 +42,8 @@ export function Cart() {
   const { cart, removeFromCart, updateQty, total } = useCart();
   const settings = useShippingSettings();
   const navigate = useNavigate();
-  const finalTotal = total; // ✅ No shipping on cart page — calculated at checkout
+  const finalTotal = total; // No shipping on cart page — calculated at checkout
 
-  // Cart Protection: live stock check on mount
   useEffect(() => {
     if (!cart.length) return;
     (async () => {
@@ -84,7 +83,6 @@ export function Cart() {
     <div className="container" style={{ paddingTop: 44, paddingBottom: 64 }}>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 600, marginBottom: 8 }}>Your Cart</h1>
       <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 32 }}>{cart.length} item{cart.length !== 1 ? "s" : ""}</p>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 32, alignItems: "start" }} className="cart-grid">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {cart.map(item => (
@@ -109,7 +107,6 @@ export function Cart() {
             </div>
           ))}
         </div>
-
         <div className="card" style={{ position: "sticky", top: 80 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginBottom: 20 }}>Order Summary</div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 14 }}>
@@ -137,7 +134,7 @@ export function Cart() {
   );
 }
 
-/* ─── RAZORPAY CHECKOUT ──────────────────────────────────── */
+/* ─── CHECKOUT ──────────────────────────────────────────── */
 export function Checkout() {
   const { cart, total, clearCart } = useCart();
   const { currentUser, userProfile } = useAuth();
@@ -160,17 +157,27 @@ export function Checkout() {
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+
   const cityIsAmd = isAhmedabad(form.city);
   const baseShipping = cityIsAmd ? settings.amdDeliveryCharge : settings.outsideDeliveryCharge;
   const freeThreshold = cityIsAmd ? settings.freeShippingAboveAmd : settings.freeShippingAboveOutside;
- const shipping = !form.city ? 0 : (freeThreshold > 0 && total >= freeThreshold) ? 0 : baseShipping;
 
-  const couponDiscount = appliedCoupon ? (appliedCoupon.type === "percent" ? Math.round(total * appliedCoupon.value / 100) : Math.min(appliedCoupon.value, total)) : 0;
-  const discount = couponDiscount;
-  const subtotalAfterDiscounts = total + shipping - discount;
-  const platformFee = Math.round(total * 0.02);
-  const finalTotal = subtotalAfterDiscounts + platformFee;
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  // Shipping is 0 until city is entered
+  const shipping = !form.city ? 0 : (freeThreshold > 0 && total >= freeThreshold) ? 0 : baseShipping;
+
+  // Online discount & COD fee
+  const ONLINE_DISCOUNT = 20;
+  const COD_FEE = 25;
+  const isOnline = form.paymentMethod === "razorpay";
+  const paymentAdjustment = isOnline ? -ONLINE_DISCOUNT : COD_FEE;
+
+  const couponDiscount = appliedCoupon
+    ? (appliedCoupon.type === "percent" ? Math.round(total * appliedCoupon.value / 100) : Math.min(appliedCoupon.value, total))
+    : 0;
+
+  // Total: only add shipping if city is entered
+  const finalTotal = total + shipping + paymentAdjustment - couponDiscount;
 
   async function applyCoupon() {
     if (!couponCode.trim()) return toast.error("Enter a coupon code!");
@@ -179,21 +186,12 @@ export function Checkout() {
       const snap = await getDocs(query(collection(db, "offers"), where("code", "==", couponCode.trim().toUpperCase()), where("active", "==", true)));
       if (snap.empty) { toast.error("Invalid or expired coupon code!"); setCouponLoading(false); return; }
       const offer = { id: snap.docs[0].id, ...snap.docs[0].data() };
-      if (offer.minOrder && total < offer.minOrder) {
-        toast.error(`Minimum order ₹${offer.minOrder} required for this coupon!`);
-        setCouponLoading(false); return;
-      }
-      if (offer.expiresAt && new Date(offer.expiresAt) < new Date()) {
-        toast.error("This coupon has expired!");
-        setCouponLoading(false); return;
-      }
+      if (offer.minOrder && total < offer.minOrder) { toast.error(`Minimum order ₹${offer.minOrder} required!`); setCouponLoading(false); return; }
+      if (offer.expiresAt && new Date(offer.expiresAt) < new Date()) { toast.error("This coupon has expired!"); setCouponLoading(false); return; }
       setAppliedCoupon(offer);
       toast.success(`🎉 Coupon applied! ${offer.type === "percent" ? offer.value + "% off" : "₹" + offer.value + " off"}`);
       try { await updateDoc(doc(db, "offers", offer.id), { usedCount: (offer.usedCount || 0) + 1 }); } catch (_) {}
-    } catch (err) {
-      console.error("Coupon error:", err);
-      toast.error("Failed to apply coupon. Please try again.");
-    }
+    } catch (err) { toast.error("Failed to apply coupon. Please try again."); }
     setCouponLoading(false);
   }
 
@@ -229,15 +227,12 @@ export function Checkout() {
       });
       const productIds = Object.keys(byProduct);
       if (!productIds.length) return;
-
       await runTransaction(db, async (transaction) => {
         const orderSnap = await transaction.get(orderRef);
         if (orderSnap.data()?.stockReduced === true) return;
         const productRefs = productIds.map(pid => doc(db, "products", pid));
         const productSnaps = [];
-        for (const ref of productRefs) {
-          productSnaps.push(await transaction.get(ref));
-        }
+        for (const ref of productRefs) productSnaps.push(await transaction.get(ref));
         productSnaps.forEach((snap, i) => {
           if (!snap.exists()) return;
           const pid = productIds[i];
@@ -245,41 +240,29 @@ export function Checkout() {
           if (!currentStock || typeof currentStock !== "object") return;
           const newStock = { ...currentStock };
           byProduct[pid].forEach(({ size, qty }) => {
-            if (newStock[size] !== undefined) {
-              newStock[size] = Math.max(0, (newStock[size] || 0) - qty);
-            }
+            if (newStock[size] !== undefined) newStock[size] = Math.max(0, (newStock[size] || 0) - qty);
           });
           transaction.update(productRefs[i], { stock: newStock });
         });
         transaction.update(orderRef, { stockReduced: true });
       });
-    } catch (e) {
-      console.error("Stock reduction failed:", e);
-    }
+    } catch (e) { console.error("Stock reduction failed:", e); }
   }
 
   async function saveOrderToFirestore(paymentData) {
     const order = {
-      userId: currentUser.uid,
-      userEmail: currentUser.email,
-      userName: form.name,
-      userPhone: form.phone,
-      items: cart,
-      subtotal: total,
-      shipping,
-      platformFee,
-      discount,
-      couponCode: appliedCoupon?.code || null,
-      total: finalTotal,
-      cityIsAhmedabad: cityIsAmd,
+      userId: currentUser.uid, userEmail: currentUser.email, userName: form.name, userPhone: form.phone,
+      items: cart, subtotal: total, shipping,
+      onlineDiscount: isOnline ? ONLINE_DISCOUNT : 0,
+      codFee: !isOnline ? COD_FEE : 0,
+      discount: couponDiscount, couponCode: appliedCoupon?.code || null,
+      total: finalTotal, cityIsAhmedabad: cityIsAmd,
       shippingAddress: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
       address: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
-      paymentMethod: "razorpay",
-      paymentStatus: "pending_razorpay",
+      paymentMethod: "razorpay", paymentStatus: "pending_razorpay",
       razorpayPaymentId: paymentData?.razorpay_payment_id || null,
       razorpayOrderId: paymentData?.razorpay_order_id || null,
-      status: "pending",
-      createdAt: serverTimestamp(),
+      status: "pending", createdAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "orders"), order);
     await reduceStockForOrder(ref.id);
@@ -288,24 +271,15 @@ export function Checkout() {
 
   async function saveCodOrder() {
     const order = {
-      userId: currentUser.uid,
-      userEmail: currentUser.email,
-      userName: form.name,
-      userPhone: form.phone,
-      items: cart,
-      subtotal: total,
-      shipping,
-      platformFee,
-      discount,
-      couponCode: appliedCoupon?.code || null,
-      total: finalTotal,
-      cityIsAhmedabad: cityIsAmd,
+      userId: currentUser.uid, userEmail: currentUser.email, userName: form.name, userPhone: form.phone,
+      items: cart, subtotal: total, shipping,
+      onlineDiscount: 0, codFee: COD_FEE,
+      discount: couponDiscount, couponCode: appliedCoupon?.code || null,
+      total: finalTotal, cityIsAhmedabad: cityIsAmd,
       shippingAddress: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
       address: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
-      paymentMethod: "cod",
-      paymentStatus: "cod",
-      status: "pending",
-      createdAt: serverTimestamp(),
+      paymentMethod: "cod", paymentStatus: "cod",
+      status: "pending", createdAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "orders"), order);
     await reduceStockForOrder(ref.id);
@@ -322,14 +296,8 @@ export function Checkout() {
         const stockMap = snap.data().stock;
         if (!stockMap || typeof stockMap !== "object") continue;
         const sizeStock = stockMap[item.size] ?? 0;
-        if (sizeStock === 0) {
-          toast.error(`${item.name} (${item.size}) just went out of stock! Remove it from cart to continue.`);
-          return false;
-        }
-        if (sizeStock < item.qty) {
-          toast.error(`Only ${sizeStock} units of ${item.name} (${item.size}) available. Reduce quantity to continue.`);
-          return false;
-        }
+        if (sizeStock === 0) { toast.error(`${item.name} (${item.size}) just went out of stock!`); return false; }
+        if (sizeStock < item.qty) { toast.error(`Only ${sizeStock} units of ${item.name} (${item.size}) available.`); return false; }
       } catch (e) {}
     }
     return true;
@@ -339,10 +307,7 @@ export function Checkout() {
     if (!validateForm()) return;
     const stockOk = await checkCartStockBeforePayment();
     if (!stockOk) return;
-    if (!scriptLoaded || !window.Razorpay) {
-      toast.error("Payment gateway not loaded. Please refresh and try again.");
-      return;
-    }
+    if (!scriptLoaded || !window.Razorpay) { toast.error("Payment gateway not loaded. Please refresh."); return; }
     setLoading(true);
     try {
       const options = {
@@ -357,14 +322,12 @@ export function Checkout() {
             const oid = await saveOrderToFirestore(response);
             try {
               await updateDoc(doc(db, "orders", oid), {
-                paymentStatus: "verified",
-                status: "confirmed",
+                paymentStatus: "verified", status: "confirmed",
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpayOrderId: response.razorpay_order_id || null,
               });
             } catch (_) {}
-            clearCart();
-            setOrderId(oid);
+            clearCart(); setOrderId(oid);
             toast.success("Payment successful! Order confirmed 🎉");
           } catch (e) {
             toast.error("Order saving failed. Contact support with Payment ID: " + response.razorpay_payment_id);
@@ -374,24 +337,15 @@ export function Checkout() {
         prefill: { name: form.name, email: form.email, contact: form.phone },
         notes: { address: `${form.address}, ${form.city}, ${form.state} - ${form.pincode}` },
         theme: { color: "#e8c547" },
-        modal: {
-          ondismiss: function () {
-            setLoading(false);
-            toast("Payment cancelled. Your cart is still saved.");
-          }
-        }
+        modal: { ondismiss: function () { setLoading(false); toast("Payment cancelled. Your cart is still saved."); } }
       };
-
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", function (response) {
         setLoading(false);
         toast.error("Payment failed: " + (response.error?.description || "Unknown error"));
       });
       rzp.open();
-    } catch (e) {
-      setLoading(false);
-      toast.error("Failed to open payment. Please try again.");
-    }
+    } catch (e) { setLoading(false); toast.error("Failed to open payment. Please try again."); }
   }
 
   async function handleCod(e) {
@@ -402,12 +356,9 @@ export function Checkout() {
     setLoading(true);
     try {
       const oid = await saveCodOrder();
-      clearCart();
-      setOrderId(oid);
+      clearCart(); setOrderId(oid);
       toast.success("Order placed! We'll deliver to your door.");
-    } catch (e) {
-      toast.error("Failed to place order. Try again.");
-    }
+    } catch (e) { toast.error("Failed to place order. Try again."); }
     setLoading(false);
   }
 
@@ -433,9 +384,9 @@ export function Checkout() {
   return (
     <div className="container" style={{ paddingTop: 44, paddingBottom: 64 }}>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 600, marginBottom: 32 }}>Checkout</h1>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 32, alignItems: "start" }} className="checkout-grid">
         <div>
+          {/* Delivery */}
           <div className="card" style={{ marginBottom: 18 }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
               <Truck size={18} color="var(--accent)" /> Delivery Details
@@ -474,37 +425,55 @@ export function Checkout() {
             </div>
           </div>
 
+          {/* Payment Method */}
           <div className="card">
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
               <CreditCard size={18} color="var(--accent)" /> Payment Method
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
-                { val: "razorpay", icon: <Zap size={18} />, label: "Pay Online", desc: "UPI · Cards · Net Banking · Wallets — via Razorpay", badge: "Recommended", badgeClass: "badge-gold" },
-                { val: "cod", icon: <Truck size={18} />, label: "Cash on Delivery", desc: "Pay when your order arrives at your door", badge: null }
-              ].map(({ val, icon, label, desc, badge, badgeClass }) => (
-                <button key={val} type="button" onClick={() => setForm(p => ({ ...p, paymentMethod: val }))}
-                  style={{ padding: "16px", borderRadius: "var(--radius)", cursor: "pointer", textAlign: "left", background: form.paymentMethod === val ? "rgba(232,197,71,0.07)" : "var(--ink3)", border: `1.5px solid ${form.paymentMethod === val ? "var(--accent)" : "var(--border)"}`, transition: "all 0.2s", display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ color: form.paymentMethod === val ? "var(--accent)" : "var(--muted)", flexShrink: 0 }}>{icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{label}</span>
-                      {badge && <span className={`badge ${badgeClass}`}>{badge}</span>}
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>{desc}</div>
+              {/* Pay Online */}
+              <button type="button" onClick={() => setForm(p => ({ ...p, paymentMethod: "razorpay" }))}
+                style={{ padding: "16px", borderRadius: "var(--radius)", cursor: "pointer", textAlign: "left", background: form.paymentMethod === "razorpay" ? "rgba(232,197,71,0.07)" : "var(--ink3)", border: `1.5px solid ${form.paymentMethod === "razorpay" ? "var(--accent)" : "var(--border)"}`, transition: "all 0.2s", display: "flex", alignItems: "flex-start", gap: 14 }}>
+                <div style={{ color: form.paymentMethod === "razorpay" ? "var(--accent)" : "var(--muted)", flexShrink: 0, marginTop: 2 }}><Zap size={18} /></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>Pay Online</span>
+                    <span className="badge badge-gold">Recommended</span>
                   </div>
-                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.paymentMethod === val ? "var(--accent)" : "var(--border2)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {form.paymentMethod === val && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />}
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>UPI · Cards · Net Banking · Wallets — via Razorpay</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
+                    🟢 Save ₹{ONLINE_DISCOUNT} on this order!
                   </div>
-                </button>
-              ))}
+                </div>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.paymentMethod === "razorpay" ? "var(--accent)" : "var(--border2)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                  {form.paymentMethod === "razorpay" && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />}
+                </div>
+              </button>
+
+              {/* COD */}
+              <button type="button" onClick={() => setForm(p => ({ ...p, paymentMethod: "cod" }))}
+                style={{ padding: "16px", borderRadius: "var(--radius)", cursor: "pointer", textAlign: "left", background: form.paymentMethod === "cod" ? "rgba(232,197,71,0.07)" : "var(--ink3)", border: `1.5px solid ${form.paymentMethod === "cod" ? "var(--accent)" : "var(--border)"}`, transition: "all 0.2s", display: "flex", alignItems: "flex-start", gap: 14 }}>
+                <div style={{ color: form.paymentMethod === "cod" ? "var(--accent)" : "var(--muted)", flexShrink: 0, marginTop: 2 }}><Truck size={18} /></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>Cash on Delivery</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Pay when your order arrives at your door</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#fb923c", background: "rgba(251,146,60,0.08)", border: "1px solid rgba(251,146,60,0.2)", borderRadius: 6, padding: "4px 10px", display: "inline-block" }}>
+                    🔴 +₹{COD_FEE} COD handling fee applies
+                  </div>
+                </div>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.paymentMethod === "cod" ? "var(--accent)" : "var(--border2)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                  {form.paymentMethod === "cod" && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />}
+                </div>
+              </button>
             </div>
 
             {form.paymentMethod === "razorpay" && (
               <div style={{ background: "rgba(232,197,71,0.05)", border: "1px solid rgba(232,197,71,0.18)", borderRadius: "var(--radius)", padding: 14, marginTop: 14 }}>
                 <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
                   <strong style={{ color: "var(--accent)", display: "block", marginBottom: 4 }}>Secure Payment by Razorpay</strong>
-                  You'll be redirected to Razorpay's secure checkout to complete your payment. Supports UPI (QR + Intent), all major cards, net banking, and wallets like Paytm & PhonePe.
+                  You'll be redirected to Razorpay's secure checkout. Supports UPI (QR + Intent), all major cards, net banking, and wallets like Paytm & PhonePe.
                 </div>
               </div>
             )}
@@ -528,18 +497,16 @@ export function Checkout() {
                     <a href="/policy/shipping" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>Shipping Policy</a>.
                   </span>
                 </label>
-                {!termsAccepted && (
-                  <div style={{ fontSize: 11, color: "#fb923c", marginTop: 8, marginLeft: 30 }}>⚠️ You must accept the terms to place your order</div>
-                )}
+                {!termsAccepted && <div style={{ fontSize: 11, color: "#fb923c", marginTop: 8, marginLeft: 30 }}>⚠️ You must accept the terms to place your order</div>}
               </div>
 
               {form.paymentMethod === "razorpay" ? (
-                <button type="button" onClick={() => { if (!termsAccepted) { toast.error("Please accept Terms & Conditions to continue!"); return; } handleRazorpay(); }} disabled={loading || !scriptLoaded}
+                <button type="button" onClick={() => { if (!termsAccepted) { toast.error("Please accept Terms & Conditions!"); return; } handleRazorpay(); }} disabled={loading || !scriptLoaded}
                   className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "15px", opacity: termsAccepted ? 1 : 0.6 }}>
                   {loading ? "Opening Payment..." : !scriptLoaded ? "Loading..." : `Pay ₹${finalTotal} Securely`}
                 </button>
               ) : (
-                <button type="button" onClick={e => { if (!termsAccepted) { toast.error("Please accept Terms & Conditions to continue!"); return; } handleCod(e); }} disabled={loading}
+                <button type="button" onClick={e => { if (!termsAccepted) { toast.error("Please accept Terms & Conditions!"); return; } handleCod(e); }} disabled={loading}
                   className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "15px", opacity: termsAccepted ? 1 : 0.6 }}>
                   {loading ? "Placing Order..." : `Place COD Order · ₹${finalTotal}`}
                 </button>
@@ -549,6 +516,7 @@ export function Checkout() {
           </div>
         </div>
 
+        {/* Order Summary */}
         <div className="card" style={{ position: "sticky", top: 80 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 18 }}>Order Summary</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
@@ -565,6 +533,7 @@ export function Checkout() {
           </div>
           <div className="divider" />
 
+          {/* Coupon */}
           {!appliedCoupon ? (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 7 }}>Have a coupon?</div>
@@ -589,34 +558,47 @@ export function Checkout() {
             <span style={{ color: "var(--muted)" }}>Subtotal</span><span>₹{total}</span>
           </div>
 
-          {freeThreshold > 0 && total < freeThreshold && (
+          {/* Free delivery nudge */}
+          {form.city && freeThreshold > 0 && total < freeThreshold && (
             <div style={{ background: "rgba(232,197,71,0.08)", border: "1px solid rgba(232,197,71,0.2)", borderRadius: 8, padding: "7px 11px", fontSize: 12, color: "var(--accent)", marginBottom: 8 }}>
               🎁 Add ₹{freeThreshold - total} more for <strong>FREE delivery!</strong>
             </div>
           )}
 
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: discount > 0 ? 8 : 14, fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
             <span style={{ color: "var(--muted)" }}>
               Delivery
-              {form.city && <span style={{ fontSize: 11, marginLeft: 4, color: cityIsAmd ? "#60a5fa" : "var(--muted)" }}>({cityIsAmd ? "Ahmedabad" : "Outside Ahmedabad"})</span>}
+              {form.city && <span style={{ fontSize: 11, marginLeft: 4, color: cityIsAmd ? "#60a5fa" : "var(--muted)" }}>({cityIsAmd ? "Ahmedabad" : "Outside AMD"})</span>}
             </span>
-            <span style={{ color: shipping === 0 ? "var(--emerald)" : "var(--light)" }}>
-              {!form.city ? "Enter city" : shipping === 0 ? "Free 🎉" : `₹${shipping}`}
+            <span style={{ color: shipping === 0 && form.city ? "var(--emerald)" : "var(--light)" }}>
+              {!form.city ? <span style={{ color: "var(--muted)", fontSize: 12 }}>Enter city</span> : shipping === 0 ? "Free 🎉" : `₹${shipping}`}
             </span>
           </div>
-          {discount > 0 && (
+
+          {/* Online discount line */}
+          {isOnline && (
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
-              <span style={{ color: "#4ade80" }}>Coupon ({appliedCoupon.code})</span>
-              <span style={{ color: "#4ade80", fontWeight: 600 }}>-₹{discount}</span>
+              <span style={{ color: "#4ade80", fontWeight: 600 }}>🟢 Online Discount</span>
+              <span style={{ color: "#4ade80", fontWeight: 700 }}>-₹{ONLINE_DISCOUNT}</span>
             </div>
           )}
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 13 }}>
-            <span style={{ color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
-              Platform Fee
-              <span style={{ fontSize: 10, background: "rgba(255,255,255,0.08)", borderRadius: 4, padding: "1px 5px" }}>2%</span>
-            </span>
-            <span>₹{platformFee}</span>
-          </div>
+
+          {/* COD fee line */}
+          {!isOnline && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
+              <span style={{ color: "#fb923c", fontWeight: 600 }}>🔴 COD Fee</span>
+              <span style={{ color: "#fb923c", fontWeight: 700 }}>+₹{COD_FEE}</span>
+            </div>
+          )}
+
+          {/* Coupon discount */}
+          {couponDiscount > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
+              <span style={{ color: "#4ade80" }}>Coupon ({appliedCoupon.code})</span>
+              <span style={{ color: "#4ade80", fontWeight: 600 }}>-₹{couponDiscount}</span>
+            </div>
+          )}
+
           <div className="divider" />
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Total</span>
