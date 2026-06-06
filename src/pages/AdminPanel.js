@@ -15,6 +15,11 @@ const DEFAULT_SLIDES = [
   { id: 4, image: "/tshirt4.png", title: "FITTED. RAW. REAL.", subtitle: "Fresh Drops Every Week — Stay Ahead of the Fit", badge: "HOT", cta: "View All", link: "/shop" },
 ];
 
+function optimizeCloudinaryUrl(url) {
+  if (!url || !url.includes("res.cloudinary.com")) return url;
+  return url.replace("/upload/", "/upload/f_auto,q_auto,w_800/");
+}
+
 export default function AdminPanel() {
   const { isAdmin, logout } = useAuth();
   const navigate = useNavigate();
@@ -387,7 +392,7 @@ function AdminProducts() {
       category: form.category,
       subcategory: form.subcategory || null,
       description: form.description,
-      images: form.imageList.filter(u => u.trim()),
+      images: form.imageList.filter(u => u.trim()).map(optimizeCloudinaryUrl),
       sizes: parsedSizes, badge: form.badge || null,
       stock: stockObj, updatedAt: serverTimestamp()
     };
@@ -634,7 +639,7 @@ function AdminProducts() {
                 <div style={{ background: "rgba(232,197,71,0.06)", border: "1px solid rgba(232,197,71,0.15)", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 16 }}>
                   <strong style={{ color: "var(--accent)" }}>📸 How to add images:</strong>
                   <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
-                    Upload photo to <a href="https://imgbb.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>imgbb.com</a> → copy <strong style={{ color: "var(--light)" }}>Direct Link</strong> → paste below.<br />
+                    Upload photo to <a href="https://cloudinary.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>imgbb.com</a> → copy <strong style={{ color: "var(--light)" }}>Direct Link</strong> → paste below.<br />
                     Add 2–3 angles so users can swipe through on the product page.
                   </div>
                 </div>
@@ -652,7 +657,7 @@ function AdminProducts() {
                       <input
                         type="text" value={url}
                         onChange={e => { const next = [...form.imageList]; next[i] = e.target.value; setForm(prev => ({ ...prev, imageList: next })); }}
-                        placeholder={i === 0 ? "https://i.ibb.co/... (required)" : "https://i.ibb.co/... (different angle)"}
+                        placeholder={i === 0 ? "https://res.cloudinary.com/...(required)" : "https://res.cloudinary.com/... (different angle)"}
                         className="input" style={{ fontSize: 12, marginBottom: url.trim() ? 10 : 0 }}
                       />
                       {url.trim() && (
@@ -739,7 +744,7 @@ function AdminCategories() {
   async function saveCat() {
     setSaving(true);
     try {
-      await updateDoc(doc(db, "categories", editingCat), { name: editForm.name, image: editForm.image, subcategories: editForm.subcategories, updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, "categories", editingCat), { name: editForm.name, image: optimizeCloudinaryUrl(editForm.image), subcategories: editForm.subcategories, updatedAt: serverTimestamp() });
       toast.success("Category updated! ✅");
       setEditingCat(null); fetchCats();
     } catch (e) { toast.error("Failed to save"); }
