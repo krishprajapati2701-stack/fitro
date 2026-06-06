@@ -163,7 +163,7 @@ export function Checkout() {
   const cityIsAmd = isAhmedabad(form.city);
   const baseShipping = cityIsAmd ? settings.amdDeliveryCharge : settings.outsideDeliveryCharge;
   const freeThreshold = cityIsAmd ? settings.freeShippingAboveAmd : settings.freeShippingAboveOutside;
-  const shipping = (freeThreshold > 0 && total >= freeThreshold) ? 0 : baseShipping;
+ const shipping = !form.city ? 0 : (freeThreshold > 0 && total >= freeThreshold) ? 0 : baseShipping;
 
   const couponDiscount = appliedCoupon ? (appliedCoupon.type === "percent" ? Math.round(total * appliedCoupon.value / 100) : Math.min(appliedCoupon.value, total)) : 0;
   const discount = couponDiscount;
