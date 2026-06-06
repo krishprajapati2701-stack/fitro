@@ -42,8 +42,7 @@ export function Cart() {
   const { cart, removeFromCart, updateQty, total } = useCart();
   const settings = useShippingSettings();
   const navigate = useNavigate();
-  const shipping = settings.outsideDeliveryCharge;
-  const finalTotal = total + shipping;
+  const finalTotal = total; // ✅ No shipping on cart page — calculated at checkout
 
   // Cart Protection: live stock check on mount
   useEffect(() => {
@@ -161,7 +160,6 @@ export function Checkout() {
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
-  // City-based shipping: inside Ahmedabad = amdDeliveryCharge, outside = outsideDeliveryCharge
   const cityIsAmd = isAhmedabad(form.city);
   const baseShipping = cityIsAmd ? settings.amdDeliveryCharge : settings.outsideDeliveryCharge;
   const freeThreshold = cityIsAmd ? settings.freeShippingAboveAmd : settings.freeShippingAboveOutside;
@@ -170,7 +168,7 @@ export function Checkout() {
   const couponDiscount = appliedCoupon ? (appliedCoupon.type === "percent" ? Math.round(total * appliedCoupon.value / 100) : Math.min(appliedCoupon.value, total)) : 0;
   const discount = couponDiscount;
   const subtotalAfterDiscounts = total + shipping - discount;
-  const platformFee = Math.round(total * 0.02); // 2% on item total, not reducible
+  const platformFee = Math.round(total * 0.02);
   const finalTotal = subtotalAfterDiscounts + platformFee;
   const [termsAccepted, setTermsAccepted] = useState(false);
 
@@ -191,7 +189,6 @@ export function Checkout() {
       }
       setAppliedCoupon(offer);
       toast.success(`🎉 Coupon applied! ${offer.type === "percent" ? offer.value + "% off" : "₹" + offer.value + " off"}`);
-      // Increment usedCount (best effort)
       try { await updateDoc(doc(db, "offers", offer.id), { usedCount: (offer.usedCount || 0) + 1 }); } catch (_) {}
     } catch (err) {
       console.error("Coupon error:", err);
@@ -200,7 +197,6 @@ export function Checkout() {
     setCouponLoading(false);
   }
 
-  // Load Razorpay SDK
   useEffect(() => {
     if (window.Razorpay) { setScriptLoaded(true); return; }
     const script = document.createElement("script");
@@ -221,12 +217,9 @@ export function Checkout() {
     return true;
   }
 
-  // Reduce stock directly via Firestore transaction — no Cloud Function needed
-  // Idempotent: stockReduced flag prevents double deduction on retry
   async function reduceStockForOrder(orderId) {
     try {
       const orderRef = doc(db, "orders", orderId);
-      // Group cart items by productId
       const byProduct = {};
       cart.forEach(item => {
         const pid = item.productId || item.id;
@@ -238,18 +231,13 @@ export function Checkout() {
       if (!productIds.length) return;
 
       await runTransaction(db, async (transaction) => {
-        // Check idempotency first
         const orderSnap = await transaction.get(orderRef);
         if (orderSnap.data()?.stockReduced === true) return;
-
-        // Read all product docs inside transaction
         const productRefs = productIds.map(pid => doc(db, "products", pid));
         const productSnaps = [];
         for (const ref of productRefs) {
           productSnaps.push(await transaction.get(ref));
         }
-
-        // Deduct stock per size, floor at 0
         productSnaps.forEach((snap, i) => {
           if (!snap.exists()) return;
           const pid = productIds[i];
@@ -263,13 +251,10 @@ export function Checkout() {
           });
           transaction.update(productRefs[i], { stock: newStock });
         });
-
-        // Mark order so this never runs twice
         transaction.update(orderRef, { stockReduced: true });
       });
     } catch (e) {
       console.error("Stock reduction failed:", e);
-      // Non-blocking — order is saved, admin can adjust manually if needed
     }
   }
 
@@ -297,7 +282,6 @@ export function Checkout() {
       createdAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "orders"), order);
-    // Reduce stock server-side via Cloud Function — passes orderId, not cart
     await reduceStockForOrder(ref.id);
     return ref.id;
   }
@@ -324,12 +308,10 @@ export function Checkout() {
       createdAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "orders"), order);
-    // Reduce stock server-side via Cloud Function — passes orderId, not cart
     await reduceStockForOrder(ref.id);
     return ref.id;
   }
 
-  // Live stock check before payment
   async function checkCartStockBeforePayment() {
     for (const item of cart) {
       const pid = item.productId || item.id;
@@ -364,9 +346,8 @@ export function Checkout() {
     setLoading(true);
     try {
       const options = {
-        // ⚠️ Replace with your actual Razorpay Key ID from razorpay.com dashboard
         key: "rzp_live_SWdAQTV5mEVY85",
-        amount: finalTotal * 100, // paise
+        amount: finalTotal * 100,
         currency: "INR",
         name: "FITRO",
         description: `${cart.length} item${cart.length !== 1 ? "s" : ""} — FITRO Streetwear`,
@@ -374,7 +355,6 @@ export function Checkout() {
         handler: async function (response) {
           try {
             const oid = await saveOrderToFirestore(response);
-            // Confirm the order since payment succeeded
             try {
               await updateDoc(doc(db, "orders", oid), {
                 paymentStatus: "verified",
@@ -391,17 +371,9 @@ export function Checkout() {
           }
           setLoading(false);
         },
-        prefill: {
-          name: form.name,
-          email: form.email,
-          contact: form.phone,
-        },
-        notes: {
-          address: `${form.address}, ${form.city}, ${form.state} - ${form.pincode}`,
-        },
-        theme: {
-          color: "#e8c547",
-        },
+        prefill: { name: form.name, email: form.email, contact: form.phone },
+        notes: { address: `${form.address}, ${form.city}, ${form.state} - ${form.pincode}` },
+        theme: { color: "#e8c547" },
         modal: {
           ondismiss: function () {
             setLoading(false);
@@ -462,10 +434,8 @@ export function Checkout() {
     <div className="container" style={{ paddingTop: 44, paddingBottom: 64 }}>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 600, marginBottom: 32 }}>Checkout</h1>
 
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 32, alignItems: "start" }} className="checkout-grid">
         <div>
-          {/* Delivery */}
           <div className="card" style={{ marginBottom: 18 }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
               <Truck size={18} color="var(--accent)" /> Delivery Details
@@ -504,39 +474,18 @@ export function Checkout() {
             </div>
           </div>
 
-          {/* Payment Method */}
           <div className="card">
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
               <CreditCard size={18} color="var(--accent)" /> Payment Method
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                {
-                  val: "razorpay",
-                  icon: <Zap size={18} />,
-                  label: "Pay Online",
-                  desc: "UPI · Cards · Net Banking · Wallets — via Razorpay",
-                  badge: "Recommended",
-                  badgeClass: "badge-gold"
-                },
-                {
-                  val: "cod",
-                  icon: <Truck size={18} />,
-                  label: "Cash on Delivery",
-                  desc: "Pay when your order arrives at your door",
-                  badge: null,
-                }
+                { val: "razorpay", icon: <Zap size={18} />, label: "Pay Online", desc: "UPI · Cards · Net Banking · Wallets — via Razorpay", badge: "Recommended", badgeClass: "badge-gold" },
+                { val: "cod", icon: <Truck size={18} />, label: "Cash on Delivery", desc: "Pay when your order arrives at your door", badge: null }
               ].map(({ val, icon, label, desc, badge, badgeClass }) => (
                 <button key={val} type="button" onClick={() => setForm(p => ({ ...p, paymentMethod: val }))}
-                  style={{
-                    padding: "16px", borderRadius: "var(--radius)", cursor: "pointer", textAlign: "left",
-                    background: form.paymentMethod === val ? "rgba(232,197,71,0.07)" : "var(--ink3)",
-                    border: `1.5px solid ${form.paymentMethod === val ? "var(--accent)" : "var(--border)"}`,
-                    transition: "all 0.2s", display: "flex", alignItems: "center", gap: 14,
-                  }}>
-                  <div style={{ color: form.paymentMethod === val ? "var(--accent)" : "var(--muted)", flexShrink: 0 }}>
-                    {icon}
-                  </div>
+                  style={{ padding: "16px", borderRadius: "var(--radius)", cursor: "pointer", textAlign: "left", background: form.paymentMethod === val ? "rgba(232,197,71,0.07)" : "var(--ink3)", border: `1.5px solid ${form.paymentMethod === val ? "var(--accent)" : "var(--border)"}`, transition: "all 0.2s", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ color: form.paymentMethod === val ? "var(--accent)" : "var(--muted)", flexShrink: 0 }}>{icon}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                       <span style={{ fontWeight: 600, fontSize: 14 }}>{label}</span>
@@ -551,7 +500,6 @@ export function Checkout() {
               ))}
             </div>
 
-            {/* Razorpay info box */}
             {form.paymentMethod === "razorpay" && (
               <div style={{ background: "rgba(232,197,71,0.05)", border: "1px solid rgba(232,197,71,0.18)", borderRadius: "var(--radius)", padding: 14, marginTop: 14 }}>
                 <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
@@ -561,7 +509,6 @@ export function Checkout() {
               </div>
             )}
 
-            {/* COD info box */}
             {form.paymentMethod === "cod" && (
               <div style={{ background: "rgba(247,246,242,0.03)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 14, marginTop: 14 }}>
                 <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
@@ -570,18 +517,10 @@ export function Checkout() {
               </div>
             )}
 
-            {/* Place Order CTA */}
             <div style={{ marginTop: 22 }}>
-
-              {/* Terms & Conditions Checkbox */}
               <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${termsAccepted ? "rgba(74,222,128,0.3)" : "rgba(255,107,53,0.3)"}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={termsAccepted}
-                    onChange={e => setTermsAccepted(e.target.checked)}
-                    style={{ width: 18, height: 18, marginTop: 2, cursor: "pointer", accentColor: "var(--accent)", flexShrink: 0 }}
-                  />
+                  <input type="checkbox" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} style={{ width: 18, height: 18, marginTop: 2, cursor: "pointer", accentColor: "var(--accent)", flexShrink: 0 }} />
                   <span style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
                     I have read and agree to the{" "}
                     <a href="/policy/terms" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>Terms & Conditions</a>,{" "}
@@ -590,9 +529,7 @@ export function Checkout() {
                   </span>
                 </label>
                 {!termsAccepted && (
-                  <div style={{ fontSize: 11, color: "#fb923c", marginTop: 8, marginLeft: 30 }}>
-                    ⚠️ You must accept the terms to place your order
-                  </div>
+                  <div style={{ fontSize: 11, color: "#fb923c", marginTop: 8, marginLeft: 30 }}>⚠️ You must accept the terms to place your order</div>
                 )}
               </div>
 
@@ -607,14 +544,11 @@ export function Checkout() {
                   {loading ? "Placing Order..." : `Place COD Order · ₹${finalTotal}`}
                 </button>
               )}
-              <p style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 10 }}>
-                🔒 Your data is encrypted and secure
-              </p>
+              <p style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 10 }}>🔒 Your data is encrypted and secure</p>
             </div>
           </div>
         </div>
 
-        {/* Summary */}
         <div className="card" style={{ position: "sticky", top: 80 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 18 }}>Order Summary</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
@@ -631,20 +565,11 @@ export function Checkout() {
           </div>
           <div className="divider" />
 
-          {/* Coupon */}
           {!appliedCoupon ? (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 7 }}>Have a coupon?</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="text"
-                  value={couponCode}
-                  onChange={e => setCouponCode(e.target.value.toUpperCase())}
-                  placeholder="Enter coupon code"
-                  className="input"
-                  style={{ fontFamily: "var(--font-mono)", letterSpacing: 1.5, fontSize: 13 }}
-                  onKeyDown={e => e.key === "Enter" && applyCoupon()}
-                />
+                <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value.toUpperCase())} placeholder="Enter coupon code" className="input" style={{ fontFamily: "var(--font-mono)", letterSpacing: 1.5, fontSize: 13 }} onKeyDown={e => e.key === "Enter" && applyCoupon()} />
                 <button onClick={applyCoupon} disabled={couponLoading} className="btn btn-secondary" style={{ flexShrink: 0, padding: "8px 14px", fontSize: 12 }}>
                   <Tag size={13} /> {couponLoading ? "..." : "Apply"}
                 </button>
@@ -664,7 +589,6 @@ export function Checkout() {
             <span style={{ color: "var(--muted)" }}>Subtotal</span><span>₹{total}</span>
           </div>
 
-          {/* Free delivery nudge */}
           {freeThreshold > 0 && total < freeThreshold && (
             <div style={{ background: "rgba(232,197,71,0.08)", border: "1px solid rgba(232,197,71,0.2)", borderRadius: 8, padding: "7px 11px", fontSize: 12, color: "var(--accent)", marginBottom: 8 }}>
               🎁 Add ₹{freeThreshold - total} more for <strong>FREE delivery!</strong>
@@ -674,9 +598,7 @@ export function Checkout() {
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: discount > 0 ? 8 : 14, fontSize: 13 }}>
             <span style={{ color: "var(--muted)" }}>
               Delivery
-              {form.city && <span style={{ fontSize: 11, marginLeft: 4, color: cityIsAmd ? "#60a5fa" : "var(--muted)" }}>
-                ({cityIsAmd ? "Ahmedabad" : "Outside Ahmedabad"})
-              </span>}
+              {form.city && <span style={{ fontSize: 11, marginLeft: 4, color: cityIsAmd ? "#60a5fa" : "var(--muted)" }}>({cityIsAmd ? "Ahmedabad" : "Outside Ahmedabad"})</span>}
             </span>
             <span style={{ color: shipping === 0 ? "var(--emerald)" : "var(--light)" }}>
               {!form.city ? "Enter city" : shipping === 0 ? "Free 🎉" : `₹${shipping}`}
@@ -700,7 +622,6 @@ export function Checkout() {
             <span style={{ fontWeight: 600, fontSize: 14 }}>Total</span>
             <span style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--accent)", fontWeight: 600 }}>₹{finalTotal}</span>
           </div>
-
         </div>
       </div>
     </div>
