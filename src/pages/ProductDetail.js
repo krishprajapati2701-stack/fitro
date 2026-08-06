@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -22,6 +22,24 @@ export default function ProductDetail() {
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(5);
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [isZooming, setIsZooming] = useState(false);
+  const [lensPos, setLensPos] = useState({ x: 0, y: 0, xPct: 50, yPct: 50 });
+  const imgWrapRef = useRef(null);
+  const isTouchDevice = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  const LENS_SIZE = 160;
+  const ZOOM_LEVEL = 2.4;
+
+  function handleImgMouseMove(e) {
+    if (!imgWrapRef.current) return;
+    const rect = imgWrapRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setLensPos({
+      x, y,
+      xPct: Math.max(0, Math.min(100, (x / rect.width) * 100)),
+      yPct: Math.max(0, Math.min(100, (y / rect.height) * 100)),
+    });
+  }
   useEffect(() => {
     // Real-time listener — product page updates instantly when admin changes stock
     setLoading(true);
@@ -47,10 +65,10 @@ export default function ProductDetail() {
     return () => unsub();
   }, [id]);
 
-  async function handleAddToCart() {
-    if (!currentUser) { toast.error("Login first!"); navigate("/login"); return; }
-    if (isAdmin) { toast.error("Admin can't shop 😄"); return; }
-    if (!selectedSize) { toast.error("Pick a size first!"); return; }
+  async function validateAndAddToCart() {
+    if (!currentUser) { toast.error("Login first!"); navigate("/login"); return false; }
+    if (isAdmin) { toast.error("Admin can't shop 😄"); return false; }
+    if (!selectedSize) { toast.error("Pick a size first!"); return false; }
     // Live stock check at moment of add-to-cart
     const { getDoc, doc: fsDoc } = await import("firebase/firestore");
     const snap = await getDoc(fsDoc(db, "products", product.id));
@@ -60,12 +78,22 @@ export default function ProductDetail() {
         const sizeQty = liveStock[selectedSize] ?? 0;
         if (sizeQty === 0) {
           toast.error(`Size ${selectedSize} just went out of stock!`);
-          return;
+          return false;
         }
       }
     }
     addToCart(product, selectedSize);
-    toast.success("Added to cart! 🛍️");
+    return true;
+  }
+
+  async function handleAddToCart() {
+    const ok = await validateAndAddToCart();
+    if (ok) toast.success("Added to cart! 🛍️");
+  }
+
+  async function handleBuyNow() {
+    const ok = await validateAndAddToCart();
+    if (ok) navigate("/checkout");
   }
 
   async function submitReview(e) {
@@ -108,8 +136,35 @@ export default function ProductDetail() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "start" }} className="product-detail-grid">
         {/* Images */}
         <div>
-          <div style={{ borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4" }}>
+          <div
+            ref={imgWrapRef}
+            onMouseEnter={() => !isTouchDevice && setIsZooming(true)}
+            onMouseLeave={() => setIsZooming(false)}
+            onMouseMove={!isTouchDevice ? handleImgMouseMove : undefined}
+            style={{ position: "relative", borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4", cursor: isTouchDevice ? "default" : "zoom-in" }}
+          >
             <img src={images[activeImg]} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = "/tshirt1.jpg"} />
+
+            {isZooming && !isTouchDevice && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: lensPos.x - LENS_SIZE / 2,
+                  top: lensPos.y - LENS_SIZE / 2,
+                  width: LENS_SIZE,
+                  height: LENS_SIZE,
+                  borderRadius: "50%",
+                  border: "2px solid var(--accent)",
+                  boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
+                  pointerEvents: "none",
+                  backgroundImage: `url(${images[activeImg]})`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundSize: `${ZOOM_LEVEL * 100}% ${ZOOM_LEVEL * 100}%`,
+                  backgroundPosition: `${lensPos.xPct}% ${lensPos.yPct}%`,
+                  zIndex: 5,
+                }}
+              />
+            )}
           </div>
           {images.length > 1 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -209,16 +264,25 @@ export default function ProductDetail() {
               <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>This product is currently unavailable. Check back soon!</div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-            <button onClick={isFullyOutOfStock ? undefined : handleAddToCart}
-              className="btn btn-primary"
-              disabled={isFullyOutOfStock}
-              style={{ flex: 1, justifyContent: "center", fontSize: 12, opacity: isFullyOutOfStock ? 0.5 : 1, cursor: isFullyOutOfStock ? "not-allowed" : "pointer" }}>
-              <ShoppingBag size={16} /> {isFullyOutOfStock ? "Out of Stock" : "Add to Cart"}
-            </button>
-            {currentUser && (
-              <button onClick={() => toggle(product.id)} style={{ padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${wishlisted ? "var(--neon2)" : "var(--border)"}`, background: wishlisted ? "rgba(255,45,120,0.1)" : "var(--ink3)", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}>
-                <Heart size={18} color={wishlisted ? "var(--neon2)" : "var(--muted)"} fill={wishlisted ? "var(--neon2)" : "none"} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={isFullyOutOfStock ? undefined : handleAddToCart}
+                className="btn btn-secondary"
+                disabled={isFullyOutOfStock}
+                style={{ flex: 1, justifyContent: "center", fontSize: 12, opacity: isFullyOutOfStock ? 0.5 : 1, cursor: isFullyOutOfStock ? "not-allowed" : "pointer" }}>
+                <ShoppingBag size={16} /> {isFullyOutOfStock ? "Out of Stock" : "Add to Cart"}
+              </button>
+              {currentUser && (
+                <button onClick={() => toggle(product.id)} style={{ padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${wishlisted ? "var(--neon2)" : "var(--border)"}`, background: wishlisted ? "rgba(255,45,120,0.1)" : "var(--ink3)", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}>
+                  <Heart size={18} color={wishlisted ? "var(--neon2)" : "var(--muted)"} fill={wishlisted ? "var(--neon2)" : "none"} />
+                </button>
+              )}
+            </div>
+            {!isFullyOutOfStock && (
+              <button onClick={handleBuyNow}
+                className="btn btn-primary"
+                style={{ width: "100%", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
+                Buy Now
               </button>
             )}
           </div>
