@@ -4,7 +4,7 @@ import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDocs, query, w
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
-import { useWishlist } from "./Home";
+import { useWishlist, ProductCard } from "./Home";
 import { ArrowLeft, Heart, ShoppingBag, Star, Package, RotateCcw, Shield, Truck, FileText, Plus, Minus } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -23,6 +23,7 @@ export default function ProductDetail() {
   const [rating, setRating] = useState(5);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [openSection, setOpenSection] = useState("description");
+  const [similarProducts, setSimilarProducts] = useState([]);
   useEffect(() => {
     // Real-time listener — product page updates instantly when admin changes stock
     setLoading(true);
@@ -47,6 +48,22 @@ export default function ProductDetail() {
 
     return () => unsub();
   }, [id]);
+
+  useEffect(() => {
+    if (!product?.category) { setSimilarProducts([]); return; }
+    (async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "products"), where("category", "==", product.category)));
+        let list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.id !== product.id);
+        // Prefer same fit (e.g. Oversized vs Regular) when available, fall back to same category
+        if (product.fit) {
+          const sameFit = list.filter(p => p.fit && p.fit.toLowerCase() === product.fit.toLowerCase());
+          if (sameFit.length > 0) list = sameFit;
+        }
+        setSimilarProducts(list.slice(0, 8));
+      } catch (e) { console.error(e); }
+    })();
+  }, [product?.id, product?.category, product?.fit]);
 
   async function handleAddToCart() {
     if (!currentUser) { toast.error("Login first!"); navigate("/login"); return; }
@@ -281,6 +298,26 @@ export default function ProductDetail() {
           </div>
         </div>
       </div>
+
+      {/* Similar Products */}
+      {similarProducts.length > 0 && (
+        <div style={{ marginTop: 60 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 32, letterSpacing: 2, marginBottom: 24 }}>
+            SIMILAR {product.fit ? product.fit.toUpperCase() : ""} PICKS
+          </h2>
+          <div className="grid-4">
+            {similarProducts.map(p => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                onClick={() => navigate(`/product/${p.id}`)}
+                wishlisted={isWishlisted(p.id)}
+                onWishlist={(e) => { e.stopPropagation(); toggle(p.id); }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Reviews */}
       <div style={{ marginTop: 60 }}>
