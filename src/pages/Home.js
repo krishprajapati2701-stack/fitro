@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { collection, getDocs, doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
-import { Heart, ArrowRight, ChevronLeft, ChevronRight, Star } from "lucide-react";
+import { Heart, ArrowRight, Star } from "lucide-react";
 import toast from "react-hot-toast";
 
 export function useWishlist() {
@@ -51,12 +51,7 @@ export function useWishlist() {
   return { wishlist, toggle, isWishlisted };
 }
 
-const DEFAULT_SLIDES = [
-  { id: 1, image: "/tshirt1.jpg", title: "Wear It Fit", subtitle: "Premium streetwear built for those who move with purpose.", badge: "New Drop", cta: "Shop Now", link: "/shop" },
-  { id: 2, image: "/tshirt3.png", title: "Own It.", subtitle: "Raw energy. Real style. No compromise — ever.", badge: "Bestseller", cta: "Explore", link: "/shop?cat=Mens" },
-  { id: 3, image: "/tshirt2.jpg", title: "Fitro Essentials", subtitle: "Minimal drip. Timeless pieces. Always in season.", badge: "Limited", cta: "Shop Now", link: "/shop?cat=Unisex" },
-  { id: 4, image: "/tshirt4.png", title: "Fitted. Raw. Real.", subtitle: "Fresh drops every week — stay ahead of the fit.", badge: "Hot", cta: "View All", link: "/shop" },
-];
+const DEFAULT_BANNER = { image: "/tshirt1.jpg", title: "Wear It Fit", subtitle: "Premium streetwear built for those who move with purpose.", badge: "New Drop", cta: "Shop Now", link: "/shop" };
 
 const DEFAULT_FEATURES = [
   { icon: "⚡", title: "New Drops Weekly", desc: "Fresh styles constantly dropping" },
@@ -258,13 +253,10 @@ export function ProductCard({ product, onClick, wishlisted, onWishlist }) {
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [slides, setSlides] = useState(DEFAULT_SLIDES);
+  const [banner, setBanner] = useState(DEFAULT_BANNER);
   const [features, setFeatures] = useState(DEFAULT_FEATURES);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [slideReady, setSlideReady] = useState({}); // hero slide images preloaded
   const [categories, setCategories] = useState([]);
   const [catImages, setCatImages] = useState({});
-  const slideTimer = useRef(null);
   const navigate = useNavigate();
   const { isWishlisted, toggle } = useWishlist();
 
@@ -288,7 +280,8 @@ export default function Home() {
         const settingsSnap = await getDoc(doc(db, "settings", "homepage"));
         if (settingsSnap.exists()) {
           const data = settingsSnap.data();
-          if (data.slides?.length) setSlides(data.slides);
+          if (data.dashboardBanner?.image) setBanner(data.dashboardBanner);
+          else if (data.slides?.length) setBanner(data.slides[0]); // fall back to old carousel data if present
           if (data.features?.length) setFeatures(data.features);
           if (data.catImages?.length) {
             const imgMap = {};
@@ -304,29 +297,6 @@ export default function Home() {
     })();
   }, []);
 
-  // Preload hero slide images eagerly so autoscroll is instant
-  useEffect(() => {
-    slides.forEach((slide, i) => {
-      const img = new window.Image();
-      img.src = slide.image;
-      img.onload = () => setSlideReady(prev => ({ ...prev, [i]: true }));
-    });
-  }, [slides]);
-
-  // Autoscroll hero — restart cleanly when slides change
-  function resetSlideTimer() {
-    clearInterval(slideTimer.current);
-    slideTimer.current = setInterval(() => setCurrentSlide(p => (p + 1) % slides.length), 5000);
-  }
-
-  useEffect(() => {
-    resetSlideTimer();
-    return () => clearInterval(slideTimer.current);
-  }, [slides.length]);
-
-  function nextSlide() { setCurrentSlide(p => (p + 1) % slides.length); resetSlideTimer(); }
-  function prevSlide() { setCurrentSlide(p => (p - 1 + slides.length) % slides.length); resetSlideTimer(); }
-
   const defaultCatImages = { Mens: "/tshirt2.jpg", Womens: "/tshirt3.png", Unisex: "/tshirt1.jpg" };
   const getCatImg = (name) => catImages[name] || defaultCatImages[name] || "/tshirt4.png";
   const displayCats = categories.length > 0
@@ -338,7 +308,7 @@ export default function Home() {
       {/* HERO */}
       <style>{`
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        .hero-section { position: relative; height: clamp(520px, 92vh, 860px); overflow: hidden; background: var(--ink); }
+        .hero-section { position: relative; height: clamp(460px, 80vh, 760px); overflow: hidden; background: var(--ink); }
         .hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; opacity: 0.28; }
         .hero-overlay { position: absolute; inset: 0; background: linear-gradient(105deg, rgba(13,13,13,0.97) 35%, rgba(13,13,13,0.35) 100%); }
         .hero-content-wrap { position: relative; zIndex: 2; height: 100%; display: flex; align-items: center; }
@@ -346,98 +316,62 @@ export default function Home() {
         .hero-title { font-family: var(--font-display); font-size: clamp(38px, 7vw, 96px); font-weight: 600; line-height: 1.0; letter-spacing: -0.5px; margin-bottom: 14px; color: var(--light); }
         .hero-sub { color: rgba(247,246,242,0.6); font-size: clamp(14px, 1.8vw, 16px); line-height: 1.7; margin-bottom: 24px; max-width: 360px; }
         .hero-img-panel { position: absolute; right: 0; top: 8%; bottom: 8%; width: 38%; border-radius: 16px 0 0 16px; overflow: hidden; border: 1px solid rgba(232,197,71,0.12); }
-        .hero-counter { position: absolute; bottom: 26px; right: 24px; font-family: var(--font-mono); font-size: 11px; color: rgba(255,255,255,0.3); z-index: 10; letter-spacing: 2px; }
 
         @media (max-width: 768px) {
-          .hero-section { height: 100svh; min-height: 600px; max-height: 900px; }
+          .hero-section { height: 100svh; min-height: 560px; max-height: 820px; }
           .hero-bg-img { opacity: 1 !important; object-fit: contain !important; object-position: center 30% !important; width: 100% !important; height: 100% !important; background: #0a0a0a !important; }
           .hero-overlay { background: linear-gradient(to top, rgba(5,5,5,0.98) 0%, rgba(5,5,5,0.85) 28%, rgba(5,5,5,0.45) 55%, rgba(5,5,5,0.08) 80%, rgba(5,5,5,0.0) 100%) !important; }
-          .hero-content-wrap { align-items: flex-end !important; padding-bottom: 80px !important; }
+          .hero-content-wrap { align-items: flex-end !important; padding-bottom: 60px !important; }
           .hero-text-block { padding: 0 !important; max-width: 100% !important; width: 100% !important; }
           .hero-title { font-size: clamp(30px, 8.5vw, 50px) !important; margin-bottom: 10px !important; text-shadow: 0 2px 24px rgba(0,0,0,0.9) !important; line-height: 1.05 !important; }
           .hero-sub { font-size: 13px !important; color: rgba(247,246,242,0.82) !important; margin-bottom: 18px !important; max-width: 100% !important; text-shadow: 0 1px 8px rgba(0,0,0,0.8) !important; }
           .hero-img-panel { display: none !important; }
-          .hero-counter { display: none; }
-          .hero-arrow-btn { width: 36px !important; height: 36px !important; top: 40% !important; }
-          .hero-dots { bottom: 56px !important; }
         }
       `}</style>
 
+      {/* Single static dashboard banner — admin-set, no carousel/autoscroll */}
       <section className="hero-section">
-        {/* All slides stacked — switch with opacity, never unmount/remount */}
-        {slides.map((slide, i) => (
-          <div key={i} style={{
-            position: "absolute", inset: 0,
-            opacity: i === currentSlide ? 1 : 0,
-            transition: "opacity 0.9s ease",
-            pointerEvents: i === currentSlide ? "all" : "none",
-            willChange: "opacity",
-          }}>
-            <img
-              src={slide.image}
-              alt={slide.title}
-              className="hero-bg-img"
-              loading="eager"
-              decoding="async"
-              fetchpriority={i === 0 ? "high" : "low"}
-              onError={e => e.target.src = "/tshirt1.jpg"}
-            />
-            <div className="hero-overlay" />
-            <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }}>
-              <div className="hero-content-wrap" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center" }}>
-                <div className="hero-text-block">
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 100, padding: "4px 14px", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: 2, marginBottom: 16, textTransform: "uppercase" }}>
-                    ✦ {slide.badge}
-                  </div>
-                  <h1 className="hero-title">{slide.title}</h1>
-                  <p className="hero-sub">{slide.subtitle}</p>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <Link to={slide.link || "/shop"} className="btn btn-primary" style={{ fontSize: 14, padding: "13px 24px" }}>
-                      {slide.cta} <ArrowRight size={14} />
-                    </Link>
-                    <Link to="/shop" className="btn btn-secondary" style={{ fontSize: 14, padding: "13px 22px" }}>All Drops</Link>
-                  </div>
+        <img
+          src={banner.image}
+          alt={banner.title}
+          className="hero-bg-img"
+          loading="eager"
+          decoding="async"
+          fetchpriority="high"
+          onError={e => e.target.src = "/tshirt1.jpg"}
+        />
+        <div className="hero-overlay" />
+        <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }}>
+          <div className="hero-content-wrap" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center" }}>
+            <div className="hero-text-block">
+              {banner.badge && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 100, padding: "4px 14px", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: 2, marginBottom: 16, textTransform: "uppercase" }}>
+                  ✦ {banner.badge}
                 </div>
-              </div>
-
-              {/* Right image panel — desktop only */}
-              <div className="hero-img-panel">
-                <img
-                  src={slide.image}
-                  alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  loading={i === 0 ? "eager" : "lazy"}
-                  decoding="async"
-                  onError={e => e.target.src = "/tshirt1.jpg"}
-                />
-                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(13,13,13,0.85) 0%, transparent 45%)" }} />
+              )}
+              <h1 className="hero-title">{banner.title}</h1>
+              <p className="hero-sub">{banner.subtitle}</p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Link to={banner.link || "/shop"} className="btn btn-primary" style={{ fontSize: 14, padding: "13px 24px" }}>
+                  {banner.cta || "Shop Now"} <ArrowRight size={14} />
+                </Link>
+                <Link to="/shop" className="btn btn-secondary" style={{ fontSize: 14, padding: "13px 22px" }}>All Drops</Link>
               </div>
             </div>
           </div>
-        ))}
 
-        {/* Arrow controls */}
-        {[[("left"), prevSlide, ChevronLeft], [("right"), nextSlide, ChevronRight]].map(([side, fn, Icon]) => (
-          <button key={side} onClick={fn} className="hero-arrow-btn" style={{
-            position: "absolute", [side]: 16, top: "50%", transform: "translateY(-50%)",
-            background: "rgba(247,246,242,0.09)", backdropFilter: "blur(12px)",
-            border: "1px solid rgba(247,246,242,0.12)", borderRadius: "50%",
-            width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", color: "white", zIndex: 10, transition: "all 0.2s"
-          }}>
-            <Icon size={18} />
-          </button>
-        ))}
-
-        {/* Dot indicators */}
-        <div className="hero-dots" style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 10 }}>
-          {slides.map((_, i) => (
-            <button key={i} onClick={() => { setCurrentSlide(i); resetSlideTimer(); }} style={{ width: i === currentSlide ? 28 : 7, height: 7, borderRadius: 4, background: i === currentSlide ? "var(--accent)" : "rgba(255,255,255,0.25)", border: "none", cursor: "pointer", transition: "all 0.3s ease", padding: 0 }} />
-          ))}
-        </div>
-
-        <div className="hero-counter">
-          {String(currentSlide + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
+          {/* Right image panel — desktop only */}
+          <div className="hero-img-panel">
+            <img
+              src={banner.image}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              loading="eager"
+              decoding="async"
+              onError={e => e.target.src = "/tshirt1.jpg"}
+            />
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(13,13,13,0.85) 0%, transparent 45%)" }} />
+          </div>
         </div>
       </section>
 
