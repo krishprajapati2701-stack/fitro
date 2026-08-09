@@ -147,7 +147,7 @@ function AdminDashboard() {
 // ---- HOMEPAGE EDITOR ----
 function AdminHomepage() {
   const [tab, setTab] = useState("banner");
-  const [dashboardBanner, setDashboardBanner] = useState({ image: "", title: "WEAR IT FIT", subtitle: "Built for Those Who Move with Purpose", badge: "NEW DROP", cta: "Shop Now", link: "/shop" });
+  const [dashboardBanner, setDashboardBanner] = useState({ image: "", link: "/shop" });
   const [features, setFeatures] = useState([
     { icon: "⚡", title: "Lightning Drops", desc: "New styles every week" },
     { icon: "🚚", title: "Fast Delivery", desc: "Pan India 3–5 days" },
@@ -227,14 +227,18 @@ function AdminHomepage() {
 
       {tab === "banner" && (
         <div>
-          <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 16 }}>One static banner shown at the top of the homepage — no carousel/autoscroll.</p>
+          <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 16 }}>
+            One full banner image shown at the top of the homepage — design the whole thing (headline, offer text, etc.) into the image itself, then just paste the link here. No separate title/subtitle text is overlaid anymore.
+          </p>
           <div className="card" style={{ maxWidth: 560 }}>
-            {[["image","Image URL"],["title","Title"],["subtitle","Subtitle"],["badge","Badge"],["cta","Button Text"],["link","Button Link"]].map(([k,p]) => (
-              <div key={k} className="form-group">
-                <label className="label">{p}</label>
-                <input type="text" value={dashboardBanner[k] || ""} onChange={e => setDashboardBanner(prev => ({...prev,[k]:e.target.value}))} placeholder={p} className="input" />
-              </div>
-            ))}
+            <div className="form-group">
+              <label className="label">Image URL</label>
+              <input type="text" value={dashboardBanner.image || ""} onChange={e => setDashboardBanner(prev => ({ ...prev, image: e.target.value }))} placeholder="https://i.ibb.co/..." className="input" />
+            </div>
+            <div className="form-group">
+              <label className="label">Banner Link (where it goes when clicked)</label>
+              <input type="text" value={dashboardBanner.link || ""} onChange={e => setDashboardBanner(prev => ({ ...prev, link: e.target.value }))} placeholder="/shop" className="input" />
+            </div>
             {dashboardBanner.image && <img src={dashboardBanner.image} alt="preview" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 10, background: "var(--ink3)" }} onError={e => e.target.style.display="none"} />}
           </div>
         </div>
