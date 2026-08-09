@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
 import { useWishlist } from "./Home";
-import { ArrowLeft, Heart, ShoppingBag, Star, Package, RotateCcw, Shield, Truck } from "lucide-react";
+import { ArrowLeft, Heart, ShoppingBag, Star, Package, RotateCcw, Shield, Truck, FileText, Plus, Minus } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ProductDetail() {
@@ -22,24 +22,7 @@ export default function ProductDetail() {
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(5);
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [isZooming, setIsZooming] = useState(false);
-  const [lensPos, setLensPos] = useState({ x: 0, y: 0, xPct: 50, yPct: 50 });
-  const imgWrapRef = useRef(null);
-  const isTouchDevice = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  const LENS_SIZE = 160;
-  const ZOOM_LEVEL = 2.4;
-
-  function handleImgMouseMove(e) {
-    if (!imgWrapRef.current) return;
-    const rect = imgWrapRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setLensPos({
-      x, y,
-      xPct: Math.max(0, Math.min(100, (x / rect.width) * 100)),
-      yPct: Math.max(0, Math.min(100, (y / rect.height) * 100)),
-    });
-  }
+  const [openSection, setOpenSection] = useState("description");
   useEffect(() => {
     // Real-time listener — product page updates instantly when admin changes stock
     setLoading(true);
@@ -65,10 +48,10 @@ export default function ProductDetail() {
     return () => unsub();
   }, [id]);
 
-  async function validateAndAddToCart() {
-    if (!currentUser) { toast.error("Login first!"); navigate("/login"); return false; }
-    if (isAdmin) { toast.error("Admin can't shop 😄"); return false; }
-    if (!selectedSize) { toast.error("Pick a size first!"); return false; }
+  async function handleAddToCart() {
+    if (!currentUser) { toast.error("Login first!"); navigate("/login"); return; }
+    if (isAdmin) { toast.error("Admin can't shop 😄"); return; }
+    if (!selectedSize) { toast.error("Pick a size first!"); return; }
     // Live stock check at moment of add-to-cart
     const { getDoc, doc: fsDoc } = await import("firebase/firestore");
     const snap = await getDoc(fsDoc(db, "products", product.id));
@@ -78,22 +61,12 @@ export default function ProductDetail() {
         const sizeQty = liveStock[selectedSize] ?? 0;
         if (sizeQty === 0) {
           toast.error(`Size ${selectedSize} just went out of stock!`);
-          return false;
+          return;
         }
       }
     }
     addToCart(product, selectedSize);
-    return true;
-  }
-
-  async function handleAddToCart() {
-    const ok = await validateAndAddToCart();
-    if (ok) toast.success("Added to cart! 🛍️");
-  }
-
-  async function handleBuyNow() {
-    const ok = await validateAndAddToCart();
-    if (ok) navigate("/checkout");
+    toast.success("Added to cart! 🛍️");
   }
 
   async function submitReview(e) {
@@ -136,35 +109,8 @@ export default function ProductDetail() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "start" }} className="product-detail-grid">
         {/* Images */}
         <div>
-          <div
-            ref={imgWrapRef}
-            onMouseEnter={() => !isTouchDevice && setIsZooming(true)}
-            onMouseLeave={() => setIsZooming(false)}
-            onMouseMove={!isTouchDevice ? handleImgMouseMove : undefined}
-            style={{ position: "relative", borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4", cursor: isTouchDevice ? "default" : "zoom-in" }}
-          >
+          <div style={{ borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4" }}>
             <img src={images[activeImg]} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = "/tshirt1.jpg"} />
-
-            {isZooming && !isTouchDevice && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: lensPos.x - LENS_SIZE / 2,
-                  top: lensPos.y - LENS_SIZE / 2,
-                  width: LENS_SIZE,
-                  height: LENS_SIZE,
-                  borderRadius: "50%",
-                  border: "2px solid var(--accent)",
-                  boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
-                  pointerEvents: "none",
-                  backgroundImage: `url(${images[activeImg]})`,
-                  backgroundRepeat: "no-repeat",
-                  backgroundSize: `${ZOOM_LEVEL * 100}% ${ZOOM_LEVEL * 100}%`,
-                  backgroundPosition: `${lensPos.xPct}% ${lensPos.yPct}%`,
-                  zIndex: 5,
-                }}
-              />
-            )}
           </div>
           {images.length > 1 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -202,9 +148,51 @@ export default function ProductDetail() {
             )}
           </div>
 
-          {product.description && (
-            <p style={{ color: "rgba(245,244,240,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 20 }}>{product.description}</p>
+          {/* Quick spec grid */}
+          {(product.productType || product.fit || product.closure || product.length || product.fabric) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 24px", padding: "18px 0", marginBottom: 8, borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+              {[
+                ["Product Category", product.category],
+                ["Product Type", product.productType],
+                ["Fit", product.fit],
+                ["Closure", product.closure],
+                ["Length", product.length],
+                ["Fabric", product.fabric],
+              ].filter(([, v]) => v).map(([label, value]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--font-body)", letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--light)" }}>{value}</div>
+                </div>
+              ))}
+            </div>
           )}
+
+          {/* Info accordion */}
+          <div style={{ marginBottom: 20 }}>
+            {[
+              { key: "description", icon: <FileText size={16} />, title: "Product Description", body: product.description || "Manufacture, Care and Fit" },
+              { key: "shipping", icon: <Truck size={16} />, title: "Shipping Info", body: "We offer free shipping across India on orders above ₹999. Standard delivery takes 3–5 business days." },
+              { key: "returns", icon: <RotateCcw size={16} />, title: "7 Days Returns & Exchange", body: "Easy returns and exchange within 7 days of delivery. Item must be unused, unwashed, and with original tags." },
+            ].map((sec, i, arr) => {
+              const isOpen = openSection === sec.key;
+              return (
+                <div key={sec.key} style={{ borderBottom: i === arr.length - 1 ? "1px solid var(--border)" : "none", borderTop: "1px solid var(--border)" }}>
+                  <button
+                    onClick={() => setOpenSection(isOpen ? null : sec.key)}
+                    style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 2px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ color: "var(--accent)", display: "flex" }}>{sec.icon}</span>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 14, fontWeight: 700, color: "var(--light)" }}>{sec.title}</span>
+                    </div>
+                    {isOpen ? <Minus size={16} color="var(--muted)" /> : <Plus size={16} color="var(--muted)" />}
+                  </button>
+                  {isOpen && (
+                    <p style={{ padding: "0 2px 16px 40px", color: "rgba(245,244,240,0.6)", fontSize: 13, lineHeight: 1.7, margin: 0 }}>{sec.body}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
 
           {/* Size selector */}
@@ -264,25 +252,16 @@ export default function ProductDetail() {
               <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>This product is currently unavailable. Check back soon!</div>
             </div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={isFullyOutOfStock ? undefined : handleAddToCart}
-                className="btn btn-secondary"
-                disabled={isFullyOutOfStock}
-                style={{ flex: 1, justifyContent: "center", fontSize: 12, opacity: isFullyOutOfStock ? 0.5 : 1, cursor: isFullyOutOfStock ? "not-allowed" : "pointer" }}>
-                <ShoppingBag size={16} /> {isFullyOutOfStock ? "Out of Stock" : "Add to Cart"}
-              </button>
-              {currentUser && (
-                <button onClick={() => toggle(product.id)} style={{ padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${wishlisted ? "var(--neon2)" : "var(--border)"}`, background: wishlisted ? "rgba(255,45,120,0.1)" : "var(--ink3)", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}>
-                  <Heart size={18} color={wishlisted ? "var(--neon2)" : "var(--muted)"} fill={wishlisted ? "var(--neon2)" : "none"} />
-                </button>
-              )}
-            </div>
-            {!isFullyOutOfStock && (
-              <button onClick={handleBuyNow}
-                className="btn btn-primary"
-                style={{ width: "100%", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
-                Buy Now
+          <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+            <button onClick={isFullyOutOfStock ? undefined : handleAddToCart}
+              className="btn btn-primary"
+              disabled={isFullyOutOfStock}
+              style={{ flex: 1, justifyContent: "center", fontSize: 12, opacity: isFullyOutOfStock ? 0.5 : 1, cursor: isFullyOutOfStock ? "not-allowed" : "pointer" }}>
+              <ShoppingBag size={16} /> {isFullyOutOfStock ? "Out of Stock" : "Add to Cart"}
+            </button>
+            {currentUser && (
+              <button onClick={() => toggle(product.id)} style={{ padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${wishlisted ? "var(--neon2)" : "var(--border)"}`, background: wishlisted ? "rgba(255,45,120,0.1)" : "var(--ink3)", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}>
+                <Heart size={18} color={wishlisted ? "var(--neon2)" : "var(--muted)"} fill={wishlisted ? "var(--neon2)" : "none"} />
               </button>
             )}
           </div>
