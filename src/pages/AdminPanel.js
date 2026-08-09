@@ -2,18 +2,11 @@ import React, { useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, ShoppingBag, Package, MessageSquare, Star, RotateCcw, Settings, LogOut, Plus, Trash2, Edit, Check, X, Truck, Save, Tag, Image, Layout, ChevronUp, ChevronDown, Globe, Gift, AlertTriangle, RefreshCw, ClipboardCheck, FileText } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Package, MessageSquare, Star, RotateCcw, Settings, LogOut, Plus, Trash2, Edit, Check, X, Truck, Save, Tag, Image, Layout, Globe, Gift, AlertTriangle, RefreshCw, ClipboardCheck, FileText } from "lucide-react";
 import AdminSiteSettings from "./AdminSiteSettings";
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where, getDoc, setDoc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import toast from "react-hot-toast";
-
-const DEFAULT_SLIDES = [
-  { id: 1, image: "/tshirt1.jpg", title: "WEAR IT FIT", subtitle: "Built for Those Who Move with Purpose", badge: "NEW DROP", cta: "Shop Now", link: "/shop" },
-  { id: 2, image: "/tshirt3.png", title: "OWN IT.", subtitle: "Raw Energy. Real Style. No Compromise.", badge: "BESTSELLER", cta: "Explore", link: "/shop?cat=Mens" },
-  { id: 3, image: "/tshirt2.jpg", title: "FITRO ESSENTIALS", subtitle: "Minimal Drip — Less Is More", badge: "LIMITED", cta: "Shop Now", link: "/shop?cat=Unisex" },
-  { id: 4, image: "/tshirt4.png", title: "FITTED. RAW. REAL.", subtitle: "Fresh Drops Every Week — Stay Ahead of the Fit", badge: "HOT", cta: "View All", link: "/shop" },
-];
 
 function optimizeCloudinaryUrl(url) {
   if (!url || !url.includes("res.cloudinary.com")) return url;
@@ -153,8 +146,8 @@ function AdminDashboard() {
 
 // ---- HOMEPAGE EDITOR ----
 function AdminHomepage() {
-  const [tab, setTab] = useState("slides");
-  const [slides, setSlides] = useState(DEFAULT_SLIDES);
+  const [tab, setTab] = useState("banner");
+  const [dashboardBanner, setDashboardBanner] = useState({ image: "", title: "WEAR IT FIT", subtitle: "Built for Those Who Move with Purpose", badge: "NEW DROP", cta: "Shop Now", link: "/shop" });
   const [features, setFeatures] = useState([
     { icon: "⚡", title: "Lightning Drops", desc: "New styles every week" },
     { icon: "🚚", title: "Fast Delivery", desc: "Pan India 3–5 days" },
@@ -173,15 +166,14 @@ function AdminHomepage() {
     { name: "Unisex", image: "", description: "Unisex collection thumbnail" },
   ]);
   const [saving, setSaving] = useState(false);
-  const [editSlide, setEditSlide] = useState(null);
-  const [slideForm, setSlideForm] = useState({ image: "", title: "", subtitle: "", badge: "", cta: "Shop Now", link: "/shop" });
 
   useEffect(() => {
     (async () => {
       const snap = await getDoc(doc(db, "settings", "homepage"));
       if (snap.exists()) {
         const d = snap.data();
-        if (d.slides?.length) setSlides(d.slides);
+        if (d.dashboardBanner) setDashboardBanner(d.dashboardBanner);
+        else if (d.slides?.length) setDashboardBanner(d.slides[0]); // migrate from old carousel data
         if (d.features?.length) setFeatures(d.features);
         if (d.stats?.length) setStats(d.stats);
         if (d.shippingBar) setShippingBar(d.shippingBar);
@@ -193,21 +185,13 @@ function AdminHomepage() {
   async function saveAll() {
     setSaving(true);
     try {
-      await setDoc(doc(db, "settings", "homepage"), { slides, features, stats, shippingBar, catImages, updatedAt: serverTimestamp() });
+      await setDoc(doc(db, "settings", "homepage"), { dashboardBanner, features, stats, shippingBar, catImages, updatedAt: serverTimestamp() });
       toast.success("Homepage updated! 🎉");
     } catch (e) { toast.error("Failed to save"); }
     setSaving(false);
   }
 
-  function openSlideEdit(slide, idx) { setEditSlide(idx); setSlideForm({ ...slide }); }
-  function saveSlide() {
-    if (editSlide === "new") setSlides(prev => [...prev, { ...slideForm, id: Date.now() }]);
-    else setSlides(prev => prev.map((s, i) => i === editSlide ? { ...slideForm, id: s.id } : s));
-    setEditSlide(null);
-    setSlideForm({ image: "", title: "", subtitle: "", badge: "", cta: "Shop Now", link: "/shop" });
-  }
-
-  const tabs = [["slides", "🖼️ Carousel Slides"], ["categories", "🗂️ Category Images"], ["features", "⚡ Features Bar"], ["shipping", "📢 Shipping Bar"]];
+  const tabs = [["banner", "🖼️ Dashboard Banner"], ["categories", "🗂️ Category Images"], ["features", "⚡ Features Bar"], ["shipping", "📢 Shipping Bar"]];
 
   return (
     <div>
@@ -241,51 +225,18 @@ function AdminHomepage() {
         </div>
       )}
 
-      {tab === "slides" && (
+      {tab === "banner" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <p style={{ color: "var(--muted)", fontSize: 14 }}>Manage hero carousel slides.</p>
-            <button onClick={() => { setEditSlide("new"); setSlideForm({ image: "", title: "", subtitle: "", badge: "NEW", cta: "Shop Now", link: "/shop" }); }} className="btn btn-primary" style={{ padding: "8px 14px", fontSize: 13 }}><Plus size={13} /> Add Slide</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {slides.map((slide, i) => (
-              <div key={i} className="card" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px" }}>
-                <img src={slide.image} alt="" style={{ width: 80, height: 60, borderRadius: 8, objectFit: "cover", background: "var(--ink3)", flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{slide.title}</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slide.subtitle}</div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}><span className="badge badge-neon">{slide.badge}</span><span className="badge badge-gray">{slide.cta}</span></div>
-                </div>
-                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  <button onClick={() => i > 0 && setSlides(prev => { const a = [...prev]; [a[i-1], a[i]] = [a[i], a[i-1]]; return a; })} style={{ background: "var(--ink3)", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, borderRadius: 6 }}><ChevronUp size={14} /></button>
-                  <button onClick={() => i < slides.length-1 && setSlides(prev => { const a = [...prev]; [a[i+1], a[i]] = [a[i], a[i+1]]; return a; })} style={{ background: "var(--ink3)", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, borderRadius: 6 }}><ChevronDown size={14} /></button>
-                  <button onClick={() => openSlideEdit(slide, i)} className="btn btn-ghost" style={{ padding: "6px 10px" }}><Edit size={13} /></button>
-                  <button onClick={() => setSlides(prev => prev.filter((_, j) => j !== i))} className="btn btn-danger" style={{ padding: "6px 10px" }}><Trash2 size={13} /></button>
-                </div>
+          <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 16 }}>One static banner shown at the top of the homepage — no carousel/autoscroll.</p>
+          <div className="card" style={{ maxWidth: 560 }}>
+            {[["image","Image URL"],["title","Title"],["subtitle","Subtitle"],["badge","Badge"],["cta","Button Text"],["link","Button Link"]].map(([k,p]) => (
+              <div key={k} className="form-group">
+                <label className="label">{p}</label>
+                <input type="text" value={dashboardBanner[k] || ""} onChange={e => setDashboardBanner(prev => ({...prev,[k]:e.target.value}))} placeholder={p} className="input" />
               </div>
             ))}
+            {dashboardBanner.image && <img src={dashboardBanner.image} alt="preview" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 10, background: "var(--ink3)" }} onError={e => e.target.style.display="none"} />}
           </div>
-          {editSlide !== null && (
-            <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setEditSlide(null)}>
-              <div className="modal-box">
-                <div className="flex-between" style={{ marginBottom: 20 }}>
-                  <h3 style={{ fontWeight: 700 }}>{editSlide === "new" ? "Add New Slide" : "Edit Slide"}</h3>
-                  <button onClick={() => setEditSlide(null)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer" }}><X size={18} /></button>
-                </div>
-                {[["image","Image URL"],["title","Title"],["subtitle","Subtitle"],["badge","Badge"],["cta","Button Text"],["link","Button Link"]].map(([k,p]) => (
-                  <div key={k} className="form-group">
-                    <label className="label">{p}</label>
-                    <input type="text" value={slideForm[k]} onChange={e => setSlideForm(prev => ({...prev,[k]:e.target.value}))} placeholder={p} className="input" />
-                  </div>
-                ))}
-                {slideForm.image && <img src={slideForm.image} alt="preview" style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 10, marginBottom: 12, background: "var(--ink3)" }} />}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveSlide} className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }}><Save size={14} /> Save Slide</button>
-                  <button onClick={() => setEditSlide(null)} className="btn btn-secondary">Cancel</button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -728,7 +679,7 @@ function AdminCategories() {
   const [cats, setCats] = useState([]);
   const [name, setName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", image: "", subcategories: [] });
+  const [editForm, setEditForm] = useState({ name: "", image: "", subcategories: [], subcategoryImages: {} });
   const [newSubcat, setNewSubcat] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -757,7 +708,7 @@ function AdminCategories() {
 
   function openEdit(cat) {
     setEditingCat(cat.id);
-    setEditForm({ name: cat.name, image: cat.image || "", subcategories: cat.subcategories || [] });
+    setEditForm({ name: cat.name, image: cat.image || "", subcategories: cat.subcategories || [], subcategoryImages: cat.subcategoryImages || {} });
     setNewSubcat("");
   }
 
@@ -769,12 +720,24 @@ function AdminCategories() {
     setNewSubcat("");
   }
 
-  function removeSubcat(sub) { setEditForm(f => ({ ...f, subcategories: f.subcategories.filter(s => s !== sub) })); }
+  function removeSubcat(sub) {
+    setEditForm(f => {
+      const nextImages = { ...f.subcategoryImages };
+      delete nextImages[sub];
+      return { ...f, subcategories: f.subcategories.filter(s => s !== sub), subcategoryImages: nextImages };
+    });
+  }
+
+  function setSubcatImage(sub, url) {
+    setEditForm(f => ({ ...f, subcategoryImages: { ...f.subcategoryImages, [sub]: url } }));
+  }
 
   async function saveCat() {
     setSaving(true);
     try {
-      await updateDoc(doc(db, "categories", editingCat), { name: editForm.name, image: optimizeCloudinaryUrl(editForm.image), subcategories: editForm.subcategories, updatedAt: serverTimestamp() });
+      const cleanedImages = {};
+      Object.entries(editForm.subcategoryImages || {}).forEach(([k, v]) => { if (v && v.trim()) cleanedImages[k] = optimizeCloudinaryUrl(v.trim()); });
+      await updateDoc(doc(db, "categories", editingCat), { name: editForm.name, image: optimizeCloudinaryUrl(editForm.image), subcategories: editForm.subcategories, subcategoryImages: cleanedImages, updatedAt: serverTimestamp() });
       toast.success("Category updated! ✅");
       setEditingCat(null); fetchCats();
     } catch (e) { toast.error("Failed to save"); }
@@ -811,14 +774,22 @@ function AdminCategories() {
                 <div className="form-group">
                   <label className="label" style={{ fontSize: 14, marginBottom: 10, display: "block" }}>
                     📂 Subcategories
-                    <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11, marginLeft: 8 }}>shown as filter chips in Shop page</span>
+                    <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11, marginLeft: 8 }}>shown as filter chips in Shop page — add a banner image for each to show when a customer selects it</span>
                   </label>
                   {editForm.subcategories.length > 0 ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14, padding: "12px", background: "var(--ink3)", borderRadius: 10 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14, padding: "12px", background: "var(--ink3)", borderRadius: 10 }}>
                       {editForm.subcategories.map(sub => (
-                        <div key={sub} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 20, padding: "6px 14px" }}>
-                          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>{sub}</span>
-                          <button onClick={() => removeSubcat(sub)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}><X size={12} /></button>
+                        <div key={sub} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", gap: 10, alignItems: "center", background: "rgba(232,197,71,0.06)", border: "1px solid rgba(232,197,71,0.25)", borderRadius: 10, padding: "8px 10px" }}>
+                          {editForm.subcategoryImages?.[sub] ? (
+                            <img src={editForm.subcategoryImages[sub]} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", background: "var(--ink4)" }} onError={e => e.target.style.display="none"} />
+                          ) : (
+                            <div style={{ width: 40, height: 40, borderRadius: 6, background: "var(--ink4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "var(--muted)", textAlign: "center" }}>no img</div>
+                          )}
+                          <div>
+                            <div style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600, marginBottom: 4 }}>{sub}</div>
+                            <input type="text" value={editForm.subcategoryImages?.[sub] || ""} onChange={e => setSubcatImage(sub, e.target.value)} placeholder="Banner image URL for this subcategory" className="input" style={{ fontSize: 12, padding: "6px 10px" }} />
+                          </div>
+                          <button onClick={() => removeSubcat(sub)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}><X size={14} /></button>
                         </div>
                       ))}
                     </div>
