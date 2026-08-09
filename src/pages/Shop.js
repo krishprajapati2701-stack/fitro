@@ -51,6 +51,14 @@ export default function Shop() {
   const currentCatDoc = categories.find(c => c.name === activeCategory);
   const subcats = currentCatDoc?.subcategories?.length > 0 ? currentCatDoc.subcategories : [];
 
+  // Banner: subcategory-specific image wins, else the category's own thumbnail image, else nothing.
+  // Pulled live from the "categories" collection, so it always reflects whatever the admin has set —
+  // including for categories/subcategories added later.
+  const bannerImage =
+    (activeSubcat !== "All" && activeSubcat && currentCatDoc?.subcategoryImages?.[activeSubcat]) ||
+    (activeCategory !== "All" && currentCatDoc?.image) ||
+    null;
+
   useEffect(() => {
     let result = [...products];
     if (activeCategory !== "All") result = result.filter(p => p.category === activeCategory);
@@ -84,6 +92,11 @@ export default function Shop() {
 
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 60 }}>
+      {bannerImage && (
+        <div style={{ borderRadius: 16, overflow: "hidden", marginBottom: 28, border: "1px solid var(--border)", aspectRatio: "16/5", background: "var(--ink3)" }} className="shop-banner">
+          <img src={bannerImage} alt={`${activeCategory}${activeSubcat !== "All" ? " " + activeSubcat : ""}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.parentElement.style.display = "none"} />
+        </div>
+      )}
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 3, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>FITRO Store</div>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(32px,6vw,48px)", fontWeight: 600, marginBottom: 6 }}>
