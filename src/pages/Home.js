@@ -308,15 +308,12 @@ export default function Home() {
       {/* HERO */}
       <style>{`
         .hero-banner-link { display: block; width: 100%; }
-        .hero-banner-img { width: 100%; height: clamp(320px, 42vw, 640px); object-fit: cover; display: block; background: var(--ink2); }
-        @media (max-width: 768px) {
-          .hero-banner-img { height: clamp(280px, 110vw, 520px); }
-        }
+        .hero-banner-img { width: 100%; height: auto; display: block; background: var(--ink2); }
       `}</style>
 
-      {/* Single static dashboard banner — admin-set, one full image, no overlaid text.
-          Design the whole banner (headline, CTA, etc.) into the image itself in
-          Admin → Homepage → Dashboard Banner, then set where it links to. */}
+      {/* Single static dashboard banner — admin-set, one full image, no overlaid text,
+          no cropping. Shows the whole image at its natural aspect ratio, scaled to the
+          screen width, so nothing baked into the design (text, icons, edges) gets cut off. */}
       <Link to={banner.link || "/shop"} className="hero-banner-link">
         <img
           src={banner.image}
