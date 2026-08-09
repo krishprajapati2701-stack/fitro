@@ -224,6 +224,7 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   .cart-grid           { grid-template-columns: 1fr !important; }
   .profile-grid        { grid-template-columns: 1fr !important; }
   .orders-detail-grid  { grid-template-columns: 1fr !important; }
+  .shop-banner         { aspect-ratio: 16/9 !important; }
 
   /* Hero / Slideshow on mobile */
   .hero-title { font-size: clamp(32px, 9vw, 56px) !important; }
@@ -274,4 +275,3 @@ tr:hover td { background: rgba(255,255,255,0.015); }
 @media (max-width: 767px) {
   .page-bottom-spacing { padding-bottom: 80px; }
 }
-
