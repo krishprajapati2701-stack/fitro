@@ -53,17 +53,32 @@ export default function ProductDetail() {
     if (!product?.category) { setSimilarProducts([]); return; }
     (async () => {
       try {
+        // Always fetches live from Firestore, so any product added/removed later
+        // is picked up automatically — nothing here needs to change in future.
         const snap = await getDocs(query(collection(db, "products"), where("category", "==", product.category)));
-        let list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.id !== product.id);
-        // Prefer same fit (e.g. Oversized vs Regular) when available, fall back to same category
-        if (product.fit) {
-          const sameFit = list.filter(p => p.fit && p.fit.toLowerCase() === product.fit.toLowerCase());
-          if (sameFit.length > 0) list = sameFit;
+        const pool = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.id !== product.id);
+
+        const shuffle = arr => arr.map(v => [Math.random(), v]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+        const norm = v => (v || "").toString().trim().toLowerCase();
+
+        // Rank in tiers: same subcategory+fit > same subcategory > same fit > rest of category
+        const sameSubAndFit = pool.filter(p => norm(p.subcategory) && norm(p.subcategory) === norm(product.subcategory) && norm(p.fit) && norm(p.fit) === norm(product.fit));
+        const sameSub = pool.filter(p => norm(p.subcategory) && norm(p.subcategory) === norm(product.subcategory));
+        const sameFit = pool.filter(p => norm(p.fit) && norm(p.fit) === norm(product.fit));
+        const rest = pool;
+
+        const seen = new Set();
+        const ranked = [];
+        for (const tier of [shuffle(sameSubAndFit), shuffle(sameSub), shuffle(sameFit), shuffle(rest)]) {
+          for (const p of tier) {
+            if (!seen.has(p.id)) { seen.add(p.id); ranked.push(p); }
+          }
         }
-        setSimilarProducts(list.slice(0, 8));
+
+        setSimilarProducts(ranked.slice(0, 8));
       } catch (e) { console.error(e); }
     })();
-  }, [product?.id, product?.category, product?.fit]);
+  }, [product?.id, product?.category, product?.subcategory, product?.fit]);
 
   async function handleAddToCart() {
     if (!currentUser) { toast.error("Login first!"); navigate("/login"); return; }
