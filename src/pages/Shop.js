@@ -93,8 +93,8 @@ export default function Shop() {
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 60 }}>
       {bannerImage && (
-        <div style={{ borderRadius: 16, overflow: "hidden", marginBottom: 28, border: "1px solid var(--border)", aspectRatio: "16/5", background: "var(--ink3)" }} className="shop-banner">
-          <img src={bannerImage} alt={`${activeCategory}${activeSubcat !== "All" ? " " + activeSubcat : ""}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.parentElement.style.display = "none"} />
+        <div style={{ borderRadius: 16, overflow: "hidden", marginBottom: 28, border: "1px solid var(--border)", background: "var(--ink3)" }} className="shop-banner">
+          <img src={bannerImage} alt={`${activeCategory}${activeSubcat !== "All" ? " " + activeSubcat : ""}`} style={{ width: "100%", height: "auto", display: "block" }} onError={e => e.target.parentElement.style.display = "none"} />
         </div>
       )}
       <div style={{ marginBottom: 24 }}>
