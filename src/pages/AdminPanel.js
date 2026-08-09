@@ -321,7 +321,7 @@ function AdminHomepage() {
 
 // ---- PRODUCTS ----
 function AdminProducts() {
-  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
+  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "", productType: "", fit: "", closure: "", length: "", fabric: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
   const [products, setProducts] = useState([]);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -375,7 +375,7 @@ function AdminProducts() {
       const flatStock = Number(p.stock) || 10;
       sizes.forEach(s => { stockPerSize[s] = flatStock; });
     }
-    setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
+    setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", productType: p.productType || "", fit: p.fit || "", closure: p.closure || "", length: p.length || "", fabric: p.fabric || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
     setStep(1); setModal(true);
   }
 
@@ -392,6 +392,11 @@ function AdminProducts() {
       category: form.category,
       subcategory: form.subcategory || null,
       description: form.description,
+      productType: form.productType || null,
+      fit: form.fit || null,
+      closure: form.closure || null,
+      length: form.length || null,
+      fabric: form.fabric || null,
       images: form.imageList.filter(u => u.trim()).map(optimizeCloudinaryUrl),
       sizes: parsedSizes, badge: form.badge || null,
       stock: stockObj, updatedAt: serverTimestamp()
@@ -576,6 +581,31 @@ function AdminProducts() {
                   <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
                     <label className="label">Description</label>
                     <textarea value={form.description} onChange={set("description")} className="input" rows={3} placeholder="Describe the fit, fabric, vibe..." />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
+                    <label className="label" style={{ marginBottom: 10 }}>Product Specs (shown as quick-reference on product page)</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 12 }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="label">Product Type</label>
+                        <input type="text" value={form.productType} onChange={set("productType")} className="input" placeholder="Oversized Tshirt" />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="label">Fit</label>
+                        <input type="text" value={form.fit} onChange={set("fit")} className="input" placeholder="Oversized Fit" />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="label">Closure</label>
+                        <input type="text" value={form.closure} onChange={set("closure")} className="input" placeholder="No Closure" />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="label">Length</label>
+                        <input type="text" value={form.length} onChange={set("length")} className="input" placeholder="Regular" />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="label">Fabric</label>
+                        <input type="text" value={form.fabric} onChange={set("fabric")} className="input" placeholder="100% Cotton" />
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
