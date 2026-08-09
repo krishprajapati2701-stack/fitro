@@ -51,7 +51,7 @@ export function useWishlist() {
   return { wishlist, toggle, isWishlisted };
 }
 
-const DEFAULT_BANNER = { image: "/tshirt1.jpg", title: "Wear It Fit", subtitle: "Premium streetwear built for those who move with purpose.", badge: "New Drop", cta: "Shop Now", link: "/shop" };
+const DEFAULT_BANNER = { image: "/tshirt1.jpg", link: "/shop" };
 
 const DEFAULT_FEATURES = [
   { icon: "⚡", title: "New Drops Weekly", desc: "Fresh styles constantly dropping" },
@@ -307,73 +307,27 @@ export default function Home() {
     <div>
       {/* HERO */}
       <style>{`
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        .hero-section { position: relative; height: clamp(460px, 80vh, 760px); overflow: hidden; background: var(--ink); }
-        .hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; opacity: 0.28; }
-        .hero-overlay { position: absolute; inset: 0; background: linear-gradient(105deg, rgba(13,13,13,0.97) 35%, rgba(13,13,13,0.35) 100%); }
-        .hero-content-wrap { position: relative; zIndex: 2; height: 100%; display: flex; align-items: center; }
-        .hero-text-block { max-width: 580px; width: 100%; padding: 0 0 32px; }
-        .hero-title { font-family: var(--font-display); font-size: clamp(38px, 7vw, 96px); font-weight: 600; line-height: 1.0; letter-spacing: -0.5px; margin-bottom: 14px; color: var(--light); }
-        .hero-sub { color: rgba(247,246,242,0.6); font-size: clamp(14px, 1.8vw, 16px); line-height: 1.7; margin-bottom: 24px; max-width: 360px; }
-        .hero-img-panel { position: absolute; right: 0; top: 8%; bottom: 8%; width: 38%; border-radius: 16px 0 0 16px; overflow: hidden; border: 1px solid rgba(232,197,71,0.12); }
-
+        .hero-banner-link { display: block; width: 100%; }
+        .hero-banner-img { width: 100%; height: clamp(320px, 42vw, 640px); object-fit: cover; display: block; background: var(--ink2); }
         @media (max-width: 768px) {
-          .hero-section { height: 100svh; min-height: 560px; max-height: 820px; }
-          .hero-bg-img { opacity: 1 !important; object-fit: contain !important; object-position: center 30% !important; width: 100% !important; height: 100% !important; background: #0a0a0a !important; }
-          .hero-overlay { background: linear-gradient(to top, rgba(5,5,5,0.98) 0%, rgba(5,5,5,0.85) 28%, rgba(5,5,5,0.45) 55%, rgba(5,5,5,0.08) 80%, rgba(5,5,5,0.0) 100%) !important; }
-          .hero-content-wrap { align-items: flex-end !important; padding-bottom: 60px !important; }
-          .hero-text-block { padding: 0 !important; max-width: 100% !important; width: 100% !important; }
-          .hero-title { font-size: clamp(30px, 8.5vw, 50px) !important; margin-bottom: 10px !important; text-shadow: 0 2px 24px rgba(0,0,0,0.9) !important; line-height: 1.05 !important; }
-          .hero-sub { font-size: 13px !important; color: rgba(247,246,242,0.82) !important; margin-bottom: 18px !important; max-width: 100% !important; text-shadow: 0 1px 8px rgba(0,0,0,0.8) !important; }
-          .hero-img-panel { display: none !important; }
+          .hero-banner-img { height: clamp(280px, 110vw, 520px); }
         }
       `}</style>
 
-      {/* Single static dashboard banner — admin-set, no carousel/autoscroll */}
-      <section className="hero-section">
+      {/* Single static dashboard banner — admin-set, one full image, no overlaid text.
+          Design the whole banner (headline, CTA, etc.) into the image itself in
+          Admin → Homepage → Dashboard Banner, then set where it links to. */}
+      <Link to={banner.link || "/shop"} className="hero-banner-link">
         <img
           src={banner.image}
-          alt={banner.title}
-          className="hero-bg-img"
+          alt="FITRO"
+          className="hero-banner-img"
           loading="eager"
           decoding="async"
           fetchpriority="high"
           onError={e => e.target.src = "/tshirt1.jpg"}
         />
-        <div className="hero-overlay" />
-        <div className="container" style={{ position: "relative", zIndex: 2, height: "100%", display: "flex", alignItems: "center" }}>
-          <div className="hero-content-wrap" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center" }}>
-            <div className="hero-text-block">
-              {banner.badge && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(232,197,71,0.12)", border: "1px solid rgba(232,197,71,0.35)", borderRadius: 100, padding: "4px 14px", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: 2, marginBottom: 16, textTransform: "uppercase" }}>
-                  ✦ {banner.badge}
-                </div>
-              )}
-              <h1 className="hero-title">{banner.title}</h1>
-              <p className="hero-sub">{banner.subtitle}</p>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Link to={banner.link || "/shop"} className="btn btn-primary" style={{ fontSize: 14, padding: "13px 24px" }}>
-                  {banner.cta || "Shop Now"} <ArrowRight size={14} />
-                </Link>
-                <Link to="/shop" className="btn btn-secondary" style={{ fontSize: 14, padding: "13px 22px" }}>All Drops</Link>
-              </div>
-            </div>
-          </div>
-
-          {/* Right image panel — desktop only */}
-          <div className="hero-img-panel">
-            <img
-              src={banner.image}
-              alt=""
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              loading="eager"
-              decoding="async"
-              onError={e => e.target.src = "/tshirt1.jpg"}
-            />
-            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(13,13,13,0.85) 0%, transparent 45%)" }} />
-          </div>
-        </div>
-      </section>
+      </Link>
 
       {/* Features bar */}
       <section style={{ background: "var(--ink2)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", padding: "22px 0" }}>
