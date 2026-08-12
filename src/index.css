@@ -217,6 +217,9 @@ tr:hover td { background: rgba(255,255,255,0.015); }
 .page-bottom-spacing { padding-bottom: 80px; }
 @media (min-width: 768px) { .page-bottom-spacing { padding-bottom: 60px; } }
 
+.shop-banner { aspect-ratio: 21/9; overflow: hidden; }
+.shop-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 @media (max-width: 640px) {
   .contact-grid        { grid-template-columns: 1fr !important; }
   .product-detail-grid { grid-template-columns: 1fr !important; gap: 20px !important; }
