@@ -10,7 +10,7 @@ import toast from "react-hot-toast";
 
 function optimizeCloudinaryUrl(url) {
   if (!url || !url.includes("res.cloudinary.com")) return url;
-  return url.replace("/upload/", "/upload/f_auto,q_auto,w_800/");
+  return url.replace("/upload/", "/upload/f_auto,q_auto,w_1920/");
 }
 
 export default function AdminPanel() {
