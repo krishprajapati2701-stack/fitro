@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { collection, addDoc, serverTimestamp, doc, getDoc, getDocs, query, where, updateDoc, runTransaction } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, getDocs, query, where, orderBy, limit, updateDoc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
@@ -205,6 +205,46 @@ export function Checkout() {
     document.head.appendChild(script);
   }, []);
 
+  // Recovery check: on mobile, switching to a UPI app to approve payment can
+  // cause the browser tab to be killed and reloaded when the customer comes
+  // back — losing the in-page Razorpay `handler` callback entirely, even
+  // though the payment succeeded and the razorpayWebhook already confirmed
+  // the order server-side. Without this, the customer would land back here
+  // with a full cart and no idea their payment went through. We check for a
+  // just-confirmed order matching the current cart and, if found, show the
+  // success screen instead of asking them to pay again.
+  useEffect(() => {
+    if (!currentUser || !cart.length) return;
+    (async () => {
+      try {
+        const cutoff = new Date(Date.now() - 20 * 60 * 1000); // last 20 minutes
+        const snap = await getDocs(query(
+          collection(db, "orders"),
+          where("userId", "==", currentUser.uid),
+          orderBy("createdAt", "desc"),
+          limit(5)
+        ));
+        const cartFingerprint = JSON.stringify(
+          [...cart].map(i => ({ pid: i.productId || i.id, size: i.size, qty: i.qty })).sort((a, b) => (a.pid + a.size).localeCompare(b.pid + b.size))
+        );
+        for (const d of snap.docs) {
+          const o = d.data();
+          if (o.paymentMethod !== "razorpay" || o.paymentStatus !== "verified") continue;
+          if (!o.createdAt?.toDate || o.createdAt.toDate() < cutoff) continue;
+          const orderFingerprint = JSON.stringify(
+            (o.items || []).map(i => ({ pid: i.productId || i.id, size: i.size, qty: i.qty })).sort((a, b) => (a.pid + a.size).localeCompare(b.pid + b.size))
+          );
+          if (orderFingerprint === cartFingerprint) {
+            clearCart();
+            setOrderId(d.id);
+            toast.success("Payment already confirmed — showing your order!");
+            break;
+          }
+        }
+      } catch (e) { /* silent — worst case, customer just sees checkout normally */ }
+    })();
+  }, [currentUser]); // intentionally excludes `cart`/`clearCart` — this check should only re-run when the user identity changes, not on every cart edit
+
   const set = k => e => setForm(prev => ({ ...prev, [k]: e.target.value }));
 
   function validateForm() {
@@ -249,7 +289,14 @@ export function Checkout() {
     } catch (e) { console.error("Stock reduction failed:", e); }
   }
 
-  async function saveOrderToFirestore(paymentData) {
+  // Creates the Firestore order BEFORE the Razorpay popup opens, in
+  // "pending_payment" state. This is the key fix: the order exists the
+  // moment checkout starts, so even if the customer's tab is killed while
+  // they're switching to a UPI app (very common on mobile — see below),
+  // the order record is never lost. Its ID is passed to Razorpay as a note,
+  // and the razorpayWebhook Cloud Function confirms it server-side once the
+  // payment is actually captured — independent of the browser surviving.
+  async function createPendingRazorpayOrder() {
     const order = {
       userId: currentUser.uid, userEmail: currentUser.email, userName: form.name, userPhone: form.phone,
       items: cart, subtotal: total, shipping,
@@ -260,13 +307,25 @@ export function Checkout() {
       shippingAddress: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
       address: { name: form.name, phone: form.phone, address: form.address, city: form.city, state: form.state, pincode: form.pincode },
       paymentMethod: "razorpay", paymentStatus: "pending_razorpay",
-      razorpayPaymentId: paymentData?.razorpay_payment_id || null,
-      razorpayOrderId: paymentData?.razorpay_order_id || null,
+      razorpayPaymentId: null, razorpayOrderId: null,
       status: "pending", createdAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "orders"), order);
-    await reduceStockForOrder(ref.id);
     return ref.id;
+  }
+
+  // Best-effort fast path: if the browser DOES survive to run this (normal
+  // case for cards / same-tab UPI QR), confirm immediately for instant UX.
+  // If it doesn't run, the webhook still confirms the order — this function
+  // is not the source of truth, just a shortcut.
+  async function confirmRazorpayOrderClientSide(oid, paymentData) {
+    await updateDoc(doc(db, "orders", oid), {
+      paymentStatus: "verified", status: "confirmed",
+      razorpayPaymentId: paymentData?.razorpay_payment_id || null,
+      razorpayOrderId: paymentData?.razorpay_order_id || null,
+      verifiedVia: "client",
+    });
+    await reduceStockForOrder(oid);
   }
 
   async function saveCodOrder() {
@@ -309,6 +368,17 @@ export function Checkout() {
     if (!stockOk) return;
     if (!scriptLoaded || !window.Razorpay) { toast.error("Payment gateway not loaded. Please refresh."); return; }
     setLoading(true);
+
+    let oid;
+    try {
+      // Create the order FIRST, before the payment popup even opens.
+      oid = await createPendingRazorpayOrder();
+    } catch (e) {
+      setLoading(false);
+      toast.error("Could not start checkout. Please try again.");
+      return;
+    }
+
     try {
       const options = {
         key: "rzp_live_SWdAQTV5mEVY85",
@@ -319,30 +389,32 @@ export function Checkout() {
         image: "https://i.ibb.co/d43Bf1mg/payment-Copy.png",
         handler: async function (response) {
           try {
-            const oid = await saveOrderToFirestore(response);
-            try {
-              await updateDoc(doc(db, "orders", oid), {
-                paymentStatus: "verified", status: "confirmed",
-                razorpayPaymentId: response.razorpay_payment_id,
-                razorpayOrderId: response.razorpay_order_id || null,
-              });
-            } catch (_) {}
+            await confirmRazorpayOrderClientSide(oid, response);
             clearCart(); setOrderId(oid);
             toast.success("Payment successful! Order confirmed 🎉");
           } catch (e) {
-            toast.error("Order saving failed. Contact support with Payment ID: " + response.razorpay_payment_id);
+            // Order was already created before payment (see above), so even
+            // if this client-side confirm step fails, the razorpayWebhook
+            // will still verify and confirm it shortly — nothing is lost.
+            clearCart(); setOrderId(oid);
+            toast.success("Payment received! Confirming your order…");
           }
           setLoading(false);
         },
         prefill: { name: form.name, email: form.email, contact: form.phone },
-        notes: { address: `${form.address}, ${form.city}, ${form.state} - ${form.pincode}` },
+        notes: { fitroOrderId: oid, address: `${form.address}, ${form.city}, ${form.state} - ${form.pincode}` },
         theme: { color: "#e8c547" },
-        modal: { ondismiss: function () { setLoading(false); toast("Payment cancelled. Your cart is still saved."); } }
+        modal: { ondismiss: async function () {
+          setLoading(false);
+          toast("Payment cancelled. Your cart is still saved.");
+          try { await updateDoc(doc(db, "orders", oid), { status: "cancelled", paymentStatus: "abandoned" }); } catch (_) {}
+        } }
       };
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", function (response) {
+      rzp.on("payment.failed", async function (response) {
         setLoading(false);
         toast.error("Payment failed: " + (response.error?.description || "Unknown error"));
+        try { await updateDoc(doc(db, "orders", oid), { status: "cancelled", paymentStatus: "failed" }); } catch (_) {}
       });
       rzp.open();
     } catch (e) { setLoading(false); toast.error("Failed to open payment. Please try again."); }
