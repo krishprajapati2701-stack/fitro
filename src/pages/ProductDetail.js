@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
 import { useWishlist, ProductCard } from "./Home";
+import { useComboOffers, COMBO_GROUP_LABELS } from "../utils/comboOffers";
 import { ArrowLeft, Heart, ShoppingBag, Star, Package, RotateCcw, Shield, Truck, FileText, Plus, Minus } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -12,8 +13,26 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser, userProfile, isAdmin } = useAuth();
-  const { addToCart } = useCart();
+  const { cart, addToCart } = useCart();
+  const comboOffers = useComboOffers();
   const { isWishlisted, toggle } = useWishlist();
+  const [comboPopup, setComboPopup] = useState(null);
+  const [justAdded, setJustAdded] = useState(false);
+  const tiltRef = useRef(null);
+  function handleImgTilt(e) {
+    const el = tiltRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width, py = (e.clientY - rect.top) / rect.height;
+    el.style.setProperty("--rx", `${(0.5 - py) * 7}deg`);
+    el.style.setProperty("--ry", `${(px - 0.5) * 7}deg`);
+    el.style.setProperty("--mx", `${px * 100}%`);
+    el.style.setProperty("--my", `${py * 100}%`);
+    el.style.setProperty("--ts", "1.02");
+  }
+  function resetImgTilt() {
+    const el = tiltRef.current; if (!el) return;
+    el.style.setProperty("--rx", "0deg"); el.style.setProperty("--ry", "0deg"); el.style.setProperty("--ts", "1");
+  }
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedSize, setSelectedSize] = useState("");
@@ -99,6 +118,21 @@ export default function ProductDetail() {
     }
     addToCart(product, selectedSize);
     toast.success("Added to cart! 🛍️");
+    setJustAdded(true);
+    setTimeout(() => setJustAdded(false), 450);
+
+    // If this tee belongs to a combo group the admin has switched on, and
+    // this cart still falls short of the combo quantity, nudge the customer
+    // to add more so the whole bundle gets the flat combo price.
+    const group = product.comboGroup;
+    const cfg = group ? comboOffers[group] : null;
+    if (cfg?.enabled && cfg.qty > 1) {
+      const currentGroupQty = cart.filter(i => i.comboGroup === group).reduce((s, i) => s + i.qty, 0);
+      const newGroupQty = currentGroupQty + 1;
+      if (newGroupQty < cfg.qty) {
+        setComboPopup({ group, remaining: cfg.qty - newGroupQty, qty: cfg.qty, price: cfg.price });
+      }
+    }
   }
 
   async function submitReview(e) {
@@ -141,8 +175,11 @@ export default function ProductDetail() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "start" }} className="product-detail-grid">
         {/* Images */}
         <div>
-          <div style={{ borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4" }}>
-            <img src={images[activeImg]} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.src = "/tshirt1.jpg"} />
+          <div ref={tiltRef} onMouseMove={handleImgTilt} onMouseLeave={resetImgTilt} className="tilt" style={{ borderRadius: 14, overflow: "hidden", background: "var(--ink2)", border: "1px solid var(--border)", marginBottom: 12, aspectRatio: "3/4" }}>
+            <div className="tilt-inner" style={{ width: "100%", height: "100%" }}>
+              <img key={activeImg} src={images[activeImg]} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover", animation: "fadeIn 0.35s ease" }} onError={e => e.target.src = "/tshirt1.jpg"} />
+            </div>
+            <div className="tilt-glare" />
           </div>
           {images.length > 1 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -179,6 +216,12 @@ export default function ProductDetail() {
               </>
             )}
           </div>
+
+          {product.comboGroup && comboOffers[product.comboGroup]?.enabled && (
+            <div className="combo-banner" style={{ background: "rgba(212,255,0,0.06)", border: "1px solid rgba(212,255,0,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "var(--light)", position: "relative", overflow: "hidden", animation: "cartItemIn 0.5s cubic-bezier(0.22,1,0.36,1)" }}>
+              <span style={{ display: "inline-block", animation: "giftWiggle 2.4s ease-in-out infinite" }}>🎁</span> Buy <strong style={{ color: "var(--accent)" }}>{comboOffers[product.comboGroup].qty}</strong> {COMBO_GROUP_LABELS[product.comboGroup]}s, get all for just <strong style={{ color: "var(--accent)" }}>₹{comboOffers[product.comboGroup].price}</strong> + shipping!
+            </div>
+          )}
 
           {/* Quick spec grid */}
           {(product.productType || product.fit || product.closure || product.length || product.fabric) && (
@@ -254,6 +297,8 @@ export default function ProductDetail() {
                         transition: "all 0.2s", minWidth: 48, position: "relative",
                         textDecoration: outOfStock ? "line-through" : "none",
                         opacity: outOfStock ? 0.6 : 1,
+                        transform: selectedSize === size ? "scale(1.08)" : "scale(1)",
+                        boxShadow: selectedSize === size ? "0 4px 14px rgba(232,197,71,0.25)" : "none",
                       }}>
                       {size}
                     </button>
@@ -286,7 +331,7 @@ export default function ProductDetail() {
           )}
           <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
             <button onClick={isFullyOutOfStock ? undefined : handleAddToCart}
-              className="btn btn-primary"
+              className={`btn btn-primary ${justAdded ? "btn-pop" : ""}`}
               disabled={isFullyOutOfStock}
               style={{ flex: 1, justifyContent: "center", fontSize: 12, opacity: isFullyOutOfStock ? 0.5 : 1, cursor: isFullyOutOfStock ? "not-allowed" : "pointer" }}>
               <ShoppingBag size={16} /> {isFullyOutOfStock ? "Out of Stock" : "Add to Cart"}
@@ -321,13 +366,14 @@ export default function ProductDetail() {
             SIMILAR {product.fit ? product.fit.toUpperCase() : ""} PICKS
           </h2>
           <div className="grid-4">
-            {similarProducts.map(p => (
+            {similarProducts.map((p, i) => (
               <ProductCard
                 key={p.id}
                 product={p}
                 onClick={() => navigate(`/product/${p.id}`)}
                 wishlisted={isWishlisted(p.id)}
                 onWishlist={(e) => { e.stopPropagation(); toggle(p.id); }}
+                revealDelay={(i % 4) * 70}
               />
             ))}
           </div>
@@ -374,6 +420,23 @@ export default function ProductDetail() {
           </div>
         )}
       </div>
+
+      {comboPopup && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, animation: "fadeIn 0.25s ease" }} onClick={() => setComboPopup(null)}>
+          <div className="card" style={{ maxWidth: 380, width: "100%", textAlign: "center", position: "relative", animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setComboPopup(null)} style={{ position: "absolute", top: 8, right: 10, background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}>×</button>
+            <div style={{ fontSize: 36, marginBottom: 8, animation: "giftWiggle 1.6s ease-in-out infinite" }}>🔥</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, letterSpacing: 1, marginBottom: 10 }}>UNLOCK THE COMBO!</div>
+            <p style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.6, marginBottom: 18 }}>
+              Add <strong style={{ color: "var(--accent)" }}>{comboPopup.remaining} more</strong> {COMBO_GROUP_LABELS[comboPopup.group] || "tee"}{comboPopup.remaining > 1 ? "s" : ""} and get all <strong style={{ color: "var(--accent)" }}>{comboPopup.qty}</strong> for just <strong style={{ color: "var(--accent)" }}>₹{comboPopup.price}</strong> + shipping!
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setComboPopup(null); navigate(product.category ? `/shop?cat=${encodeURIComponent(product.category)}` : "/shop"); }} className="btn btn-primary" style={{ flex: 1, justifyContent: "center", fontSize: 12 }}>Shop More</button>
+              <button onClick={() => setComboPopup(null)} className="btn btn-secondary" style={{ flex: 1, justifyContent: "center", fontSize: 12 }}>Maybe Later</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
