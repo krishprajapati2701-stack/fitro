@@ -274,9 +274,45 @@ function AdminHomepage() {
   );
 }
 
+// ---- PRODUCT SPEC PRESETS ----
+const PRODUCT_TYPE_OPTIONS = ["Oversized Tshirt", "Regular Tshirt", "Polo Tshirt", "Hoodie", "Sweatshirt", "Joggers", "Shorts", "Jacket", "Co-ord Set", "Crop Top", "Tank Top"];
+const FIT_OPTIONS = ["Oversized Fit", "Regular Fit", "Slim Fit", "Relaxed Fit", "Loose Fit", "Boxy Fit"];
+const CLOSURE_OPTIONS = ["No Closure", "Zipper", "Button", "Drawstring", "Elastic Waistband"];
+const LENGTH_OPTIONS = ["Regular", "Cropped", "Longline", "Ankle Length"];
+const FABRIC_OPTIONS = ["100% Cotton", "Cotton Blend", "Cotton Lycra", "Polyester", "Fleece", "Terry Cotton", "Rib Knit"];
+
+// A <select> of presets that falls back to a free-text box via an
+// "Other (type manually)" option — for specs that are usually one of a
+// known set of values but shouldn't be locked to only those values.
+// Pass a `key` prop from the caller so this remounts (and re-derives its
+// dropdown-vs-custom mode) whenever a different product is loaded into it.
+function SpecSelect({ label, value, onChange, options, placeholder }) {
+  const [showCustom, setShowCustom] = useState(!!value && !options.includes(value));
+  return (
+    <div className="form-group" style={{ marginBottom: 0 }}>
+      <label className="label">{label}</label>
+      {showCustom ? (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input type="text" value={value} onChange={e => onChange(e.target.value)} className="input" placeholder={placeholder} autoFocus />
+          <button type="button" onClick={() => { setShowCustom(false); onChange(""); }} className="btn btn-secondary" style={{ padding: "0 10px", flexShrink: 0 }} title="Back to dropdown">↺</button>
+        </div>
+      ) : (
+        <select
+          value={options.includes(value) ? value : ""}
+          onChange={e => { if (e.target.value === "__other__") { setShowCustom(true); onChange(""); } else onChange(e.target.value); }}
+          className="input">
+          <option value="">Select...</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+          <option value="__other__">Other (type manually)</option>
+        </select>
+      )}
+    </div>
+  );
+}
+
 // ---- PRODUCTS ----
 function AdminProducts() {
-  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "", productType: "", fit: "", closure: "", length: "", fabric: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
+  const EMPTY_FORM = { name: "", price: "", mrp: "", category: "", subcategory: "", description: "", productType: "", fit: "", closure: "", length: "", fabric: "", imageList: ["", "", "", "", "", ""], sizes: "XS,S,M,L,XL,XXL", badge: "", comboGroup: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } };
   const [products, setProducts] = useState([]);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -287,6 +323,7 @@ function AdminProducts() {
   const [restockModal, setRestockModal] = useState(null);
   const [restockData, setRestockData] = useState({});
   const [restockSaving, setRestockSaving] = useState(false);
+  const [modalKey, setModalKey] = useState(0);
 
   useEffect(() => { fetchProducts(); fetchCats(); }, []);
 
@@ -313,6 +350,7 @@ function AdminProducts() {
     setEditing(null);
     const defaultCat = catNames[0] || "Mens";
     setForm({ ...EMPTY_FORM, category: defaultCat, subcategory: "", stockPerSize: { XS:10, S:10, M:10, L:10, XL:10, XXL:10 } });
+    setModalKey(k => k + 1);
     setStep(1); setModal(true);
   }
 
@@ -330,7 +368,8 @@ function AdminProducts() {
       const flatStock = Number(p.stock) || 10;
       sizes.forEach(s => { stockPerSize[s] = flatStock; });
     }
-    setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", productType: p.productType || "", fit: p.fit || "", closure: p.closure || "", length: p.length || "", fabric: p.fabric || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", stockPerSize });
+    setForm({ name: p.name, price: String(p.price), mrp: String(p.mrp || ""), category: p.category || catNames[0], subcategory: p.subcategory || "", description: p.description || "", productType: p.productType || "", fit: p.fit || "", closure: p.closure || "", length: p.length || "", fabric: p.fabric || "", imageList: padded, sizes: sizesStr, badge: p.badge || "", comboGroup: p.comboGroup || "", stockPerSize });
+    setModalKey(k => k + 1);
     setStep(1); setModal(true);
   }
 
@@ -354,6 +393,7 @@ function AdminProducts() {
       fabric: form.fabric || null,
       images: form.imageList.filter(u => u.trim()).map(optimizeCloudinaryUrl),
       sizes: parsedSizes, badge: form.badge || null,
+      comboGroup: form.comboGroup || null,
       stock: stockObj, updatedAt: serverTimestamp()
     };
     try {
@@ -533,6 +573,15 @@ function AdminProducts() {
                       <option value="BESTSELLER">⭐ BESTSELLER</option>
                     </select>
                   </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="label">Combo Deal Group</label>
+                    <select value={form.comboGroup} onChange={set("comboGroup")} className="input">
+                      <option value="">Not part of a combo</option>
+                      <option value="oversize">Oversized Tee combo</option>
+                      <option value="regular">Regular Tee combo</option>
+                    </select>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Configure combo qty/price in Settings → Combo Offers</div>
+                  </div>
                   <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
                     <label className="label">Description</label>
                     <textarea value={form.description} onChange={set("description")} className="input" rows={3} placeholder="Describe the fit, fabric, vibe..." />
@@ -540,26 +589,11 @@ function AdminProducts() {
                   <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
                     <label className="label" style={{ marginBottom: 10 }}>Product Specs (shown as quick-reference on product page)</label>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 12 }}>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label">Product Type</label>
-                        <input type="text" value={form.productType} onChange={set("productType")} className="input" placeholder="Oversized Tshirt" />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label">Fit</label>
-                        <input type="text" value={form.fit} onChange={set("fit")} className="input" placeholder="Oversized Fit" />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label">Closure</label>
-                        <input type="text" value={form.closure} onChange={set("closure")} className="input" placeholder="No Closure" />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label">Length</label>
-                        <input type="text" value={form.length} onChange={set("length")} className="input" placeholder="Regular" />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label">Fabric</label>
-                        <input type="text" value={form.fabric} onChange={set("fabric")} className="input" placeholder="100% Cotton" />
-                      </div>
+                      <SpecSelect key={`productType-${modalKey}`} label="Product Type" value={form.productType} onChange={v => setForm(f => ({ ...f, productType: v }))} options={PRODUCT_TYPE_OPTIONS} placeholder="e.g. Baggy Jeans" />
+                      <SpecSelect key={`fit-${modalKey}`} label="Fit" value={form.fit} onChange={v => setForm(f => ({ ...f, fit: v }))} options={FIT_OPTIONS} placeholder="e.g. Athletic Fit" />
+                      <SpecSelect key={`closure-${modalKey}`} label="Closure" value={form.closure} onChange={v => setForm(f => ({ ...f, closure: v }))} options={CLOSURE_OPTIONS} placeholder="e.g. Snap Button" />
+                      <SpecSelect key={`length-${modalKey}`} label="Length" value={form.length} onChange={v => setForm(f => ({ ...f, length: v }))} options={LENGTH_OPTIONS} placeholder="e.g. Knee Length" />
+                      <SpecSelect key={`fabric-${modalKey}`} label="Fabric" value={form.fabric} onChange={v => setForm(f => ({ ...f, fabric: v }))} options={FABRIC_OPTIONS} placeholder="e.g. Linen Blend" />
                     </div>
                   </div>
                 </div>
@@ -1430,11 +1464,22 @@ function AdminSettings() {
   const [upiId, setUpiId] = useState("7265065054@ybl"); const [savingUpi, setSavingUpi] = useState(false);
   const [amdCharge, setAmdCharge] = useState(40); const [outsideCharge, setOutsideCharge] = useState(150);
   const [freeAboveAmd, setFreeAboveAmd] = useState(599); const [freeAboveOutside, setFreeAboveOutside] = useState(1999); const [savingDelivery, setSavingDelivery] = useState(false);
+  const [comboOversize, setComboOversize] = useState({ enabled: false, qty: 3, price: 1299 });
+  const [comboRegular, setComboRegular] = useState({ enabled: false, qty: 4, price: 1299 });
+  const [savingCombo, setSavingCombo] = useState(false);
 
   useEffect(() => {
     (async () => {
       try { const snap = await getDoc(doc(db,"settings","payment")); if (snap.exists()&&snap.data().upiId) setUpiId(snap.data().upiId); } catch(e) {}
-      try { const snap2 = await getDoc(doc(db,"settings","site")); if (snap2.exists()) { setAmdCharge(snap2.data().amdDeliveryCharge??40); setOutsideCharge(snap2.data().outsideDeliveryCharge??150); setFreeAboveAmd(snap2.data().freeShippingAboveAmd??599); setFreeAboveOutside(snap2.data().freeShippingAboveOutside??1999); } } catch(e) {}
+      try {
+        const snap2 = await getDoc(doc(db,"settings","site"));
+        if (snap2.exists()) {
+          const d = snap2.data();
+          setAmdCharge(d.amdDeliveryCharge??40); setOutsideCharge(d.outsideDeliveryCharge??150); setFreeAboveAmd(d.freeShippingAboveAmd??599); setFreeAboveOutside(d.freeShippingAboveOutside??1999);
+          if (d.comboOffers?.oversize) setComboOversize(prev => ({ ...prev, ...d.comboOffers.oversize }));
+          if (d.comboOffers?.regular) setComboRegular(prev => ({ ...prev, ...d.comboOffers.regular }));
+        }
+      } catch(e) {}
     })();
   }, []);
 
@@ -1472,6 +1517,25 @@ function AdminSettings() {
     setSavingDelivery(false);
   }
 
+  async function saveComboOffers() {
+    if (isNaN(comboOversize.qty)||isNaN(comboOversize.price)||isNaN(comboRegular.qty)||isNaN(comboRegular.price)) return toast.error("Enter valid numbers!");
+    if (Number(comboOversize.qty)<2 || Number(comboRegular.qty)<2) return toast.error("Combo quantity must be 2 or more!");
+    setSavingCombo(true);
+    try {
+      const snap = await getDoc(doc(db,"settings","site")); const existing = snap.exists()?snap.data():{};
+      await setDoc(doc(db,"settings","site"),{
+        ...existing,
+        comboOffers: {
+          oversize: { enabled: !!comboOversize.enabled, qty: Number(comboOversize.qty), price: Number(comboOversize.price) },
+          regular: { enabled: !!comboRegular.enabled, qty: Number(comboRegular.qty), price: Number(comboRegular.price) },
+        },
+        updatedAt: serverTimestamp(),
+      });
+      toast.success("Combo offers saved! 🎁");
+    } catch(e) { toast.error("Failed"); }
+    setSavingCombo(false);
+  }
+
   return (
     <div>
       <h1 style={{fontFamily:"var(--font-display)",fontSize:32,letterSpacing:1,marginBottom:20}}>SETTINGS</h1>
@@ -1484,6 +1548,37 @@ function AdminSettings() {
           <div className="form-group" style={{marginBottom:0}}><label className="label">Outside Free Above (₹)</label><input type="number" value={freeAboveOutside} onChange={e=>setFreeAboveOutside(e.target.value)} min="0" className="input"/></div>
         </div>
         <button onClick={saveDeliveryCharges} className="btn btn-primary" disabled={savingDelivery}><Save size={14}/> {savingDelivery?"Saving...":"Save Delivery Charges"}</button>
+      </div>
+
+      <div className="card" style={{maxWidth:520,marginBottom:16}}>
+        <h3 style={{fontWeight:700,marginBottom:2}}>🎁 Combo Offers</h3>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>Buying 1 tee always charges its regular price. Hit the quantity below (mixing any products tagged with that combo group) and the whole bundle is charged the flat combo price instead. Tag products with a combo group from Products → Add/Edit Product.</div>
+
+        <div style={{border:"1px solid var(--border)",borderRadius:10,padding:14,marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:12,fontWeight:700}}>
+            <input type="checkbox" checked={comboOversize.enabled} onChange={e=>setComboOversize(p=>({...p,enabled:e.target.checked}))} style={{width:16,height:16,cursor:"pointer",accentColor:"var(--accent)"}} />
+            👕 Oversized Tee Combo
+          </label>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div className="form-group" style={{marginBottom:0}}><label className="label">Buy Quantity</label><input type="number" min="2" value={comboOversize.qty} onChange={e=>setComboOversize(p=>({...p,qty:e.target.value}))} className="input"/></div>
+            <div className="form-group" style={{marginBottom:0}}><label className="label">Combo Price (₹)</label><input type="number" min="0" value={comboOversize.price} onChange={e=>setComboOversize(p=>({...p,price:e.target.value}))} className="input"/></div>
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>e.g. Buy {comboOversize.qty || 3} oversized tees → pay ₹{comboOversize.price || 1299} + shipping (instead of regular price × {comboOversize.qty || 3})</div>
+        </div>
+
+        <div style={{border:"1px solid var(--border)",borderRadius:10,padding:14,marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:12,fontWeight:700}}>
+            <input type="checkbox" checked={comboRegular.enabled} onChange={e=>setComboRegular(p=>({...p,enabled:e.target.checked}))} style={{width:16,height:16,cursor:"pointer",accentColor:"var(--accent)"}} />
+            👕 Regular Tee Combo
+          </label>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div className="form-group" style={{marginBottom:0}}><label className="label">Buy Quantity</label><input type="number" min="2" value={comboRegular.qty} onChange={e=>setComboRegular(p=>({...p,qty:e.target.value}))} className="input"/></div>
+            <div className="form-group" style={{marginBottom:0}}><label className="label">Combo Price (₹)</label><input type="number" min="0" value={comboRegular.price} onChange={e=>setComboRegular(p=>({...p,price:e.target.value}))} className="input"/></div>
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>e.g. Buy {comboRegular.qty || 4} regular tees → pay ₹{comboRegular.price || 1299} + shipping (instead of regular price × {comboRegular.qty || 4})</div>
+        </div>
+
+        <button onClick={saveComboOffers} className="btn btn-primary" disabled={savingCombo}><Save size={14}/> {savingCombo?"Saving...":"Save Combo Offers"}</button>
       </div>
       <div className="card" style={{maxWidth:520,marginBottom:16}}>
         <h3 style={{fontWeight:700,marginBottom:20}}>🔐 Change Password</h3>
