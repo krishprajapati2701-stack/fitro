@@ -4,7 +4,8 @@ import { collection, addDoc, serverTimestamp, doc, getDoc, getDocs, query, where
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
-import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Copy, CreditCard, Truck, Zap, Tag } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Copy, CreditCard, Truck, Zap, Tag, Gift } from "lucide-react";
+import { COMBO_GROUP_LABELS } from "../utils/comboOffers";
 import toast from "react-hot-toast";
 
 function useShippingSettings() {
@@ -39,10 +40,27 @@ function isAhmedabad(city) {
 
 /* ─── CART ──────────────────────────────────────────────── */
 export function Cart() {
-  const { cart, removeFromCart, updateQty, total } = useCart();
+  const { cart, removeFromCart, updateQty, total, rawTotal, comboDiscount, comboBreakdown, comboOffers } = useCart();
   const settings = useShippingSettings();
   const navigate = useNavigate();
   const finalTotal = total; // No shipping on cart page — calculated at checkout
+  const [removingKeys, setRemovingKeys] = useState({});
+
+  function handleRemove(key) {
+    setRemovingKeys(prev => ({ ...prev, [key]: true }));
+    setTimeout(() => removeFromCart(key), 260);
+  }
+
+  // Nudge for combo groups the customer hasn't reached the quantity for yet.
+  const comboNudges = Object.entries(comboOffers || {})
+    .filter(([, cfg]) => cfg?.enabled && cfg.qty > 1)
+    .map(([group, cfg]) => {
+      const qtyInCart = cart.filter(i => i.comboGroup === group).reduce((s, i) => s + i.qty, 0);
+      const remainder = qtyInCart % cfg.qty;
+      if (qtyInCart === 0 || remainder === 0) return null;
+      return { group, needed: cfg.qty - remainder, qty: cfg.qty, price: cfg.price };
+    })
+    .filter(Boolean);
 
   useEffect(() => {
     if (!cart.length) return;
@@ -85,8 +103,15 @@ export function Cart() {
       <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 32 }}>{cart.length} item{cart.length !== 1 ? "s" : ""}</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 32, alignItems: "start" }} className="cart-grid">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {cart.map(item => (
-            <div key={item.key} className="card" style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          {cart.map((item, i) => (
+            <div key={item.key} className="card" style={{
+              display: "flex", gap: 14, alignItems: "center",
+              animation: "cartItemIn 0.4s cubic-bezier(0.22,1,0.36,1) backwards",
+              animationDelay: `${i * 60}ms`,
+              opacity: removingKeys[item.key] ? 0 : 1,
+              transform: removingKeys[item.key] ? "translateX(-16px) scale(0.97)" : "translateX(0) scale(1)",
+              transition: "opacity 0.26s ease, transform 0.26s ease",
+            }}>
               <img src={item.image || "/tshirt1.jpg"} alt={item.name} style={{ width: 80, height: 100, borderRadius: 10, objectFit: "cover", flexShrink: 0, background: "var(--ink3)" }} onError={e => e.target.src = "/tshirt1.jpg"} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3, fontWeight: 500 }}>{item.category} · {item.size}</div>
@@ -94,14 +119,16 @@ export function Cart() {
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--ink3)", borderRadius: 8, padding: "4px 8px" }}>
                     <button onClick={() => updateQty(item.key, item.qty - 1)} style={{ background: "none", border: "none", color: "var(--light)", cursor: "pointer", padding: 2, display: "flex" }}><Minus size={13} /></button>
-                    <span style={{ minWidth: 22, textAlign: "center", fontWeight: 600, fontSize: 14 }}>{item.qty}</span>
+                    <span key={item.qty} style={{ minWidth: 22, textAlign: "center", fontWeight: 600, fontSize: 14, display: "inline-block", animation: "qtyPop 0.25s ease" }}>{item.qty}</span>
                     <button onClick={() => updateQty(item.key, item.qty + 1)} style={{ background: "none", border: "none", color: "var(--light)", cursor: "pointer", padding: 2, display: "flex" }}><Plus size={13} /></button>
                   </div>
-                  <span style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--accent)", fontWeight: 600 }}>₹{item.price * item.qty}</span>
+                  <span key={item.price * item.qty} style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--accent)", fontWeight: 600, display: "inline-block", animation: "qtyPop 0.25s ease" }}>₹{item.price * item.qty}</span>
                   {item.qty > 1 && <span style={{ fontSize: 11, color: "var(--muted)" }}>₹{item.price} each</span>}
                 </div>
               </div>
-              <button onClick={() => removeFromCart(item.key)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 8 }}>
+              <button onClick={() => handleRemove(item.key)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 8, transition: "color 0.2s, transform 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.color = "var(--rose)"; e.currentTarget.style.transform = "scale(1.1)"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.transform = "scale(1)"; }}>
                 <Trash2 size={16} />
               </button>
             </div>
@@ -111,8 +138,23 @@ export function Cart() {
           <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginBottom: 20 }}>Order Summary</div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 14 }}>
             <span style={{ color: "var(--muted)" }}>Subtotal ({cart.length} items)</span>
-            <span>₹{total}</span>
+            <span>₹{rawTotal}</span>
           </div>
+          {comboNudges.map(n => (
+            <div key={n.group} className="combo-banner" style={{ background: "rgba(212,255,0,0.06)", border: "1px solid rgba(212,255,0,0.2)", borderRadius: 8, padding: "8px 11px", fontSize: 12, color: "var(--accent)", marginBottom: 8, position: "relative", overflow: "hidden", animation: "cartItemIn 0.4s cubic-bezier(0.22,1,0.36,1)" }}>
+              <span style={{ display: "inline-block", animation: "giftWiggle 2.4s ease-in-out infinite" }}>🎁</span> Add {n.needed} more {COMBO_GROUP_LABELS[n.group] || n.group}{n.needed > 1 ? "s" : ""} to get {n.qty} for <strong>₹{n.price}</strong>!
+            </div>
+          ))}
+          {comboDiscount > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {Object.entries(comboBreakdown).map(([group, b], i) => (
+                <div key={group} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13, animation: "cartItemIn 0.4s cubic-bezier(0.22,1,0.36,1) backwards", animationDelay: `${i * 70}ms` }}>
+                  <span style={{ color: "#4ade80", display: "flex", alignItems: "center", gap: 5 }}><Gift size={13} style={{ animation: "giftWiggle 2s ease-in-out infinite" }} /> Combo: {b.fullChunks} × ({b.qty} {COMBO_GROUP_LABELS[group] || group}s @ ₹{b.comboPrice})</span>
+                  <span key={b.discount} style={{ color: "#4ade80", fontWeight: 700, display: "inline-block", animation: "qtyPop 0.3s ease" }}>-₹{b.discount}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, fontSize: 14 }}>
             <span style={{ color: "var(--muted)" }}>Shipping</span>
             <span style={{ color: "var(--muted)", fontSize: 12 }}>Calculated at checkout</span>
@@ -136,7 +178,7 @@ export function Cart() {
 
 /* ─── CHECKOUT ──────────────────────────────────────────── */
 export function Checkout() {
-  const { cart, total, clearCart } = useCart();
+  const { cart, total, rawTotal, comboDiscount, comboBreakdown, clearCart } = useCart();
   const { currentUser, userProfile } = useAuth();
   const settings = useShippingSettings();
   const navigate = useNavigate();
@@ -299,7 +341,7 @@ export function Checkout() {
   async function createPendingRazorpayOrder() {
     const order = {
       userId: currentUser.uid, userEmail: currentUser.email, userName: form.name, userPhone: form.phone,
-      items: cart, subtotal: total, shipping,
+      items: cart, subtotal: total, rawSubtotal: rawTotal, comboDiscount, shipping,
       onlineDiscount: isOnline ? ONLINE_DISCOUNT : 0,
       codFee: !isOnline ? COD_FEE : 0,
       discount: couponDiscount, couponCode: appliedCoupon?.code || null,
@@ -331,7 +373,7 @@ export function Checkout() {
   async function saveCodOrder() {
     const order = {
       userId: currentUser.uid, userEmail: currentUser.email, userName: form.name, userPhone: form.phone,
-      items: cart, subtotal: total, shipping,
+      items: cart, subtotal: total, rawSubtotal: rawTotal, comboDiscount, shipping,
       onlineDiscount: 0, codFee: COD_FEE,
       discount: couponDiscount, couponCode: appliedCoupon?.code || null,
       total: finalTotal, cityIsAhmedabad: cityIsAmd,
@@ -592,8 +634,8 @@ export function Checkout() {
         <div className="card" style={{ position: "sticky", top: 80 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 18 }}>Order Summary</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-            {cart.map(item => (
-              <div key={item.key} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {cart.map((item, i) => (
+              <div key={item.key} style={{ display: "flex", gap: 10, alignItems: "center", animation: "cartItemIn 0.4s cubic-bezier(0.22,1,0.36,1) backwards", animationDelay: `${i * 50}ms` }}>
                 <img src={item.image || "/tshirt1.jpg"} alt={item.name} style={{ width: 44, height: 54, borderRadius: 7, objectFit: "cover", flexShrink: 0, background: "var(--ink3)" }} onError={e => e.target.src = "/tshirt1.jpg"} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
@@ -627,8 +669,16 @@ export function Checkout() {
           )}
 
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
-            <span style={{ color: "var(--muted)" }}>Subtotal</span><span>₹{total}</span>
+            <span style={{ color: "var(--muted)" }}>Subtotal</span><span>₹{rawTotal}</span>
           </div>
+
+          {/* Combo deal discount */}
+          {comboDiscount > 0 && Object.entries(comboBreakdown).map(([group, b], i) => (
+            <div key={group} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13, animation: "cartItemIn 0.4s cubic-bezier(0.22,1,0.36,1) backwards", animationDelay: `${i * 70}ms` }}>
+              <span style={{ color: "#4ade80", display: "flex", alignItems: "center", gap: 5 }}><Gift size={13} style={{ animation: "giftWiggle 2s ease-in-out infinite" }} /> Combo ({b.fullChunks} × {b.qty} {COMBO_GROUP_LABELS[group] || group}s @ ₹{b.comboPrice})</span>
+              <span key={b.discount} style={{ color: "#4ade80", fontWeight: 700, display: "inline-block", animation: "qtyPop 0.3s ease" }}>-₹{b.discount}</span>
+            </div>
+          ))}
 
           {/* Free delivery nudge */}
           {form.city && freeThreshold > 0 && total < freeThreshold && (
