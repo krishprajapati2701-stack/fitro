@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Instagram, Twitter, Youtube, HelpCircle, ChevronDown, ChevronUp, ShoppingCart, Package, RotateCcw, CreditCard, MessageCircle } from "lucide-react";
+import { Instagram, Youtube, HelpCircle, ChevronDown, ChevronUp, ShoppingCart, Package, RotateCcw, CreditCard, MessageCircle } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import WhatsAppIcon from "./WhatsAppIcon";
 
 export default function Footer() {
-  const [socialLinks, setSocialLinks] = useState({ instagram: "", twitter: "", youtube: "" });
+  const [socialLinks, setSocialLinks] = useState({ instagram: "", whatsapp: "", youtube: "" });
   const [helpOpen, setHelpOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(null);
 
@@ -48,7 +49,7 @@ export default function Footer() {
 
   const socials = [
     { key: "instagram", Icon: Instagram, label: "Instagram" },
-    { key: "twitter", Icon: Twitter, label: "Twitter" },
+    { key: "whatsapp", Icon: WhatsAppIcon, label: "WhatsApp" },
     { key: "youtube", Icon: Youtube, label: "YouTube" },
   ];
 
