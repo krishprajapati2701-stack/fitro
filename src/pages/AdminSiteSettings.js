@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
-import { Save, Instagram, Twitter, Youtube } from "lucide-react";
+import { Save, Instagram, Youtube } from "lucide-react";
+import WhatsAppIcon from "../components/WhatsAppIcon";
 import toast from "react-hot-toast";
 
 export default function AdminSiteSettings() {
@@ -10,7 +11,7 @@ export default function AdminSiteSettings() {
   const [settings, setSettings] = useState({
     shippingCharge: 99,
     freeShippingAbove: 999,
-    socialLinks: { instagram: "", twitter: "", youtube: "" },
+    socialLinks: { instagram: "", whatsapp: "", youtube: "" },
     privacyPolicy: "## Privacy Policy\n\nYour privacy matters to us at FITRO. We collect only necessary information to process your orders.\n\n### Data We Collect\n- Name, email, phone for order processing\n- Shipping address for delivery\n\nContact: fitrostore1@gmail.com",
     termsOfService: "## Terms of Service\n\nBy using FITRO, you agree to these terms.\n\n### Returns\n- 7-day return policy\n- Items must be unworn with original tags",
     shippingPolicy: "## Shipping Policy\n\n### Delivery\n- Standard: 3-5 business days\n\n### Charges\n- Free above the configured threshold\n- Standard charges below threshold",
@@ -69,10 +70,10 @@ export default function AdminSiteSettings() {
       {tab === "social" && (
         <div className="card" style={{ maxWidth: 500 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, letterSpacing: 2, marginBottom: 18 }}>SOCIAL LINKS</div>
-          {[["instagram", "Instagram", <Instagram size={15} />], ["twitter", "Twitter / X", <Twitter size={15} />], ["youtube", "YouTube", <Youtube size={15} />]].map(([key, label, icon]) => (
+          {[["instagram", "Instagram", <Instagram size={15} />], ["whatsapp", "WhatsApp", <WhatsAppIcon size={15} />], ["youtube", "YouTube", <Youtube size={15} />]].map(([key, label, icon]) => (
             <div key={key} className="form-group">
               <label className="label" style={{ display: "flex", alignItems: "center", gap: 6 }}>{icon} {label}</label>
-              <input type="url" value={settings.socialLinks?.[key] || ""} onChange={e => setSettings(p => ({ ...p, socialLinks: { ...p.socialLinks, [key]: e.target.value } }))} className="input" placeholder={`https://${key}.com/fitrostore`} />
+              <input type="url" value={settings.socialLinks?.[key] || ""} onChange={e => setSettings(p => ({ ...p, socialLinks: { ...p.socialLinks, [key]: e.target.value } }))} className="input" placeholder={key === "whatsapp" ? "https://wa.me/91XXXXXXXXXX" : `https://${key}.com/fitrostore`} />
             </div>
           ))}
         </div>
